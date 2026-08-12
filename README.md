@@ -30,13 +30,33 @@ cargo test
 
 ```
 
+## Quality Gates
+
+All changes to Forge must pass the following checks before they are committed:
+
+```bash
+cargo build
+cargo test
+cargo clippy --all-targets --all-features -- -D warnings
+cargo fmt --check
+
+```
+
 ```
 Forge
 ├─ Cargo.lock
 ├─ Cargo.toml
 ├─ README.md
-└─ src
-   ├─ lib.rs
-   └─ main.rs
+├─ src
+│  ├─ compiler
+│  │  └─ mod.rs
+│  ├─ diagnostics
+│  │  └─ mod.rs
+│  ├─ lib.rs
+│  ├─ main.rs
+│  └─ source
+│     └─ mod.rs
+└─ tests
+   └─ public_api.rs
 
 ```
