@@ -80,6 +80,28 @@ impl SourceLocation {
     }
 }
 
+pub struct SourceFile {
+    name: String,
+    text: SourceText,
+}
+
+impl SourceFile {
+    pub fn new(name: impl Into<String>, text: SourceText) -> Self {
+        Self {
+            name: name.into(),
+            text,
+        }
+    }
+
+    pub fn name(&self) -> &str {
+        &self.name
+    }
+
+    pub fn text(&self) -> &SourceText {
+        &self.text
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -255,5 +277,27 @@ mod tests {
             location.map(|value| (value.line(), value.column())),
             Some((1, 6))
         );
+    }
+
+    #[test]
+    fn source_file_preserves_name() {
+        let file = SourceFile::new("src/main.forge", SourceText::new("let answer = 42;"));
+
+        assert_eq!(file.name(), "src/main.forge");
+    }
+
+    #[test]
+    fn source_file_preserves_source_text() {
+        let file = SourceFile::new("src/main.forge", SourceText::new("let answer = 42;"));
+
+        assert_eq!(file.text().as_str(), "let answer = 42;");
+    }
+
+    #[test]
+    fn source_file_accepts_owned_name() {
+        let name = String::from("src/main.forge");
+        let file = SourceFile::new(name, SourceText::new(""));
+
+        assert_eq!(file.name(), "src/main.forge");
     }
 }
