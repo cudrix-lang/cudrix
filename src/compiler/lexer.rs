@@ -35,12 +35,16 @@ impl<'source> Lexer<'source> {
         self.position == self.source.len()
     }
 
+    pub fn char_at_offset(&self, offset: usize) -> Option<char> {
+        self.source.as_str()[self.position..].chars().nth(offset)
+    }
+
     pub fn current(&self) -> Option<char> {
-        self.source.as_str()[self.position..].chars().next()
+        self.char_at_offset(0)
     }
 
     pub fn peek(&self) -> Option<char> {
-        self.source.as_str()[self.position..].chars().nth(1)
+        self.char_at_offset(1)
     }
 
     pub fn advance(&mut self) -> Option<char> {
@@ -259,5 +263,76 @@ mod tests {
 
         assert_eq!(span.start(), 2);
         assert_eq!(span.length(), 0);
+    }
+
+    #[test]
+    fn lexer_char_at_offset_zero_returns_current_character() {
+        let source = SourceText::new("Forge");
+        let lexer = Lexer::new(&source);
+
+        assert_eq!(lexer.char_at_offset(0), Some('F'));
+    }
+
+    #[test]
+    fn lexer_char_at_offset_returns_later_character() {
+        let source = SourceText::new("Forge");
+        let lexer = Lexer::new(&source);
+
+        assert_eq!(lexer.char_at_offset(2), Some('r'));
+        assert_eq!(lexer.char_at_offset(4), Some('e'));
+    }
+
+    #[test]
+    fn lexer_char_at_offset_handles_unicode_characters() {
+        let source = SourceText::new("Aé中Z");
+        let lexer = Lexer::new(&source);
+
+        assert_eq!(lexer.char_at_offset(0), Some('A'));
+        assert_eq!(lexer.char_at_offset(1), Some('é'));
+        assert_eq!(lexer.char_at_offset(2), Some('中'));
+        assert_eq!(lexer.char_at_offset(3), Some('Z'));
+    }
+
+    #[test]
+    fn lexer_char_at_offset_returns_none_beyond_end_of_source() {
+        let source = SourceText::new("Forge");
+        let lexer = Lexer::new(&source);
+
+        assert_eq!(lexer.char_at_offset(5), None);
+        assert_eq!(lexer.char_at_offset(100), None);
+    }
+
+    #[test]
+    fn lexer_char_at_offset_returns_none_at_end_of_source() {
+        let source = SourceText::new("A");
+        let mut lexer = Lexer::new(&source);
+
+        lexer.advance();
+
+        assert_eq!(lexer.char_at_offset(0), None);
+        assert_eq!(lexer.char_at_offset(1), None);
+    }
+
+    #[test]
+    fn lexer_char_at_offset_does_not_advance_position() {
+        let source = SourceText::new("Forge");
+        let lexer = Lexer::new(&source);
+
+        assert_eq!(lexer.char_at_offset(3), Some('g'));
+        assert_eq!(lexer.position(), 0);
+    }
+
+    #[test]
+    fn lexer_char_at_offset_is_relative_to_current_position() {
+        let source = SourceText::new("Forge");
+        let mut lexer = Lexer::new(&source);
+
+        lexer.advance();
+        lexer.advance();
+
+        assert_eq!(lexer.position(), 2);
+        assert_eq!(lexer.char_at_offset(0), Some('r'));
+        assert_eq!(lexer.char_at_offset(1), Some('g'));
+        assert_eq!(lexer.char_at_offset(2), Some('e'));
     }
 }
