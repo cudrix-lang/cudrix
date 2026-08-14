@@ -1,7 +1,8 @@
-use crate::source::SourceText;
+use crate::source::{SourceSpan, SourceText};
 
 pub struct Lexer<'source> {
     source: &'source SourceText,
+    start: usize,
     position: usize,
 }
 
@@ -9,12 +10,25 @@ impl<'source> Lexer<'source> {
     pub fn new(source: &'source SourceText) -> Self {
         Self {
             source,
+            start: 0,
             position: 0,
         }
     }
 
     pub fn position(&self) -> usize {
         self.position
+    }
+
+    pub fn start(&self) -> usize {
+        self.start
+    }
+
+    pub fn mark_start(&mut self) {
+        self.start = self.position;
+    }
+
+    pub fn span(&self) -> SourceSpan {
+        SourceSpan::new(self.start, self.position - self.start)
     }
 
     pub fn is_at_end(&self) -> bool {
@@ -145,5 +159,105 @@ mod tests {
 
         assert_eq!(lexer.advance(), None);
         assert_eq!(lexer.position(), 0);
+    }
+
+    #[test]
+    fn lexer_start_initially_matches_beginning_of_source() {
+        let source = SourceText::new("Forge");
+        let lexer = Lexer::new(&source);
+
+        assert_eq!(lexer.start(), 0);
+    }
+
+    #[test]
+    fn lexer_mark_start_records_current_position() {
+        let source = SourceText::new("Forge");
+        let mut lexer = Lexer::new(&source);
+
+        lexer.advance();
+        lexer.advance();
+        lexer.mark_start();
+
+        assert_eq!(lexer.start(), 2);
+        assert_eq!(lexer.position(), 2);
+    }
+
+    #[test]
+    fn lexer_span_is_initially_empty() {
+        let source = SourceText::new("Forge");
+        let lexer = Lexer::new(&source);
+
+        let span = lexer.span();
+
+        assert_eq!(span.start(), 0);
+        assert_eq!(span.length(), 0);
+    }
+
+    #[test]
+    fn lexer_span_tracks_advanced_source() {
+        let source = SourceText::new("Forge");
+        let mut lexer = Lexer::new(&source);
+
+        lexer.advance();
+        lexer.advance();
+        lexer.advance();
+
+        let span = lexer.span();
+
+        assert_eq!(span.start(), 0);
+        assert_eq!(span.length(), 3);
+    }
+
+    #[test]
+    fn lexer_span_begins_at_marked_start() {
+        let source = SourceText::new("let answer");
+        let mut lexer = Lexer::new(&source);
+
+        for _ in 0..4 {
+            lexer.advance();
+        }
+
+        lexer.mark_start();
+
+        for _ in 0..6 {
+            lexer.advance();
+        }
+
+        let span = lexer.span();
+
+        assert_eq!(span.start(), 4);
+        assert_eq!(span.length(), 6);
+        assert_eq!(source.slice(&span), Some("answer"));
+    }
+
+    #[test]
+    fn lexer_span_uses_utf8_byte_offsets() {
+        let source = SourceText::new("aéx");
+        let mut lexer = Lexer::new(&source);
+
+        lexer.advance();
+        lexer.mark_start();
+        lexer.advance();
+
+        let span = lexer.span();
+
+        assert_eq!(span.start(), 1);
+        assert_eq!(span.length(), 2);
+        assert_eq!(source.slice(&span), Some("é"));
+    }
+
+    #[test]
+    fn lexer_mark_start_can_reset_span_to_empty() {
+        let source = SourceText::new("Forge");
+        let mut lexer = Lexer::new(&source);
+
+        lexer.advance();
+        lexer.advance();
+        lexer.mark_start();
+
+        let span = lexer.span();
+
+        assert_eq!(span.start(), 2);
+        assert_eq!(span.length(), 0);
     }
 }
