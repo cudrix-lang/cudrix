@@ -99,6 +99,12 @@ impl<'source> Lexer<'source> {
             return Token::new(TokenKind::Identifier, self.span());
         }
 
+        if current.is_ascii_digit() {
+            self.scan_number();
+
+            return Token::new(TokenKind::Number, self.span());
+        }
+
         todo!("tokenization is not implemented for this character")
     }
 
@@ -107,6 +113,12 @@ impl<'source> Lexer<'source> {
             self.current(),
             Some(character) if character.is_alphanumeric() || character == '_'
         ) {
+            self.advance();
+        }
+    }
+
+    fn scan_number(&mut self) {
+        while matches!(self.current(), Some('0'..='9')) {
             self.advance();
         }
     }
@@ -495,5 +507,40 @@ mod tests {
 
         assert_eq!(token.kind(), TokenKind::Identifier);
         assert_eq!(source.slice(&token.span()), Some("café42"));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_number() {
+        let source = SourceText::new("42");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Number);
+        assert_eq!(token.span(), SourceSpan::new(0, 2));
+        assert_eq!(source.slice(&token.span()), Some("42"));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_zero_as_number() {
+        let source = SourceText::new("0");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Number);
+        assert_eq!(source.slice(&token.span()), Some("0"));
+    }
+
+    #[test]
+    fn lexer_number_stops_before_identifier_character() {
+        let source = SourceText::new("42answer");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Number);
+        assert_eq!(source.slice(&token.span()), Some("42"));
+        assert_eq!(lexer.current(), Some('a'));
     }
 }
