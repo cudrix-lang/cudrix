@@ -91,7 +91,24 @@ impl<'source> Lexer<'source> {
             return Token::new(TokenKind::EndOfFile, self.span());
         }
 
-        todo!("tokenization is not implemented yet")
+        let current = self.current().expect("lexer is not at end of source");
+
+        if current.is_alphabetic() || current == '_' {
+            self.scan_identifier();
+
+            return Token::new(TokenKind::Identifier, self.span());
+        }
+
+        todo!("tokenization is not implemented for this character")
+    }
+
+    fn scan_identifier(&mut self) {
+        while matches!(
+            self.current(),
+            Some(character) if character.is_alphanumeric() || character == '_'
+        ) {
+            self.advance();
+        }
     }
 }
 
@@ -422,5 +439,61 @@ mod tests {
 
         assert_eq!(token.kind(), TokenKind::EndOfFile);
         assert_eq!(token.span(), SourceSpan::new(1, 0));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_identifier() {
+        let source = SourceText::new("answer");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Identifier);
+        assert_eq!(token.span(), SourceSpan::new(0, 6));
+        assert_eq!(source.slice(&token.span()), Some("answer"));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_identifier_starting_with_underscore() {
+        let source = SourceText::new("_answer");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&token.span()), Some("_answer"));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_underscore_as_identifier() {
+        let source = SourceText::new("_");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&token.span()), Some("_"));
+    }
+
+    #[test]
+    fn lexer_next_token_allows_digits_after_identifier_start() {
+        let source = SourceText::new("answer42");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&token.span()), Some("answer42"));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_unicode_identifier() {
+        let source = SourceText::new("café42");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&token.span()), Some("café42"));
     }
 }
