@@ -42,6 +42,7 @@ impl SourceText {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SourceSpan {
     start: usize,
     length: usize,

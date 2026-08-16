@@ -1,5 +1,34 @@
 use crate::source::{SourceSpan, SourceText};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TokenKind {
+    EndOfFile,
+    Identifier,
+    Number,
+    Whitespace,
+    Unknown,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Token {
+    kind: TokenKind,
+    span: SourceSpan,
+}
+
+impl Token {
+    pub fn new(kind: TokenKind, span: SourceSpan) -> Self {
+        Self { kind, span }
+    }
+
+    pub fn kind(&self) -> TokenKind {
+        self.kind
+    }
+
+    pub fn span(&self) -> SourceSpan {
+        self.span
+    }
+}
+
 pub struct Lexer<'source> {
     source: &'source SourceText,
     start: usize,
@@ -54,11 +83,31 @@ impl<'source> Lexer<'source> {
 
         Some(current)
     }
+
+    pub fn next_token(&mut self) -> Token {
+        self.mark_start();
+
+        if self.is_at_end() {
+            return Token::new(TokenKind::EndOfFile, self.span());
+        }
+
+        todo!("tokenization is not implemented yet")
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn token_kind_values_compare_equal_to_themselves() {
+        assert_eq!(TokenKind::Identifier, TokenKind::Identifier);
+    }
+
+    #[test]
+    fn token_kind_values_compare_unequal_to_different_kinds() {
+        assert_ne!(TokenKind::Identifier, TokenKind::Number);
+    }
 
     #[test]
     fn lexer_starts_at_beginning_of_source() {
@@ -334,5 +383,44 @@ mod tests {
         assert_eq!(lexer.char_at_offset(0), Some('r'));
         assert_eq!(lexer.char_at_offset(1), Some('g'));
         assert_eq!(lexer.char_at_offset(2), Some('e'));
+    }
+
+    #[test]
+    fn token_preserves_kind() {
+        let token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 5));
+
+        assert_eq!(token.kind(), TokenKind::Identifier);
+    }
+
+    #[test]
+    fn token_preserves_span() {
+        let token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 6));
+
+        assert_eq!(token.span().start(), 4);
+        assert_eq!(token.span().length(), 6);
+    }
+
+    #[test]
+    fn lexer_next_token_returns_end_of_file_for_empty_source() {
+        let source = SourceText::new("");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::EndOfFile);
+        assert_eq!(token.span(), SourceSpan::new(0, 0));
+    }
+
+    #[test]
+    fn lexer_next_token_returns_end_of_file_at_end_of_source() {
+        let source = SourceText::new("A");
+        let mut lexer = Lexer::new(&source);
+
+        lexer.advance();
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::EndOfFile);
+        assert_eq!(token.span(), SourceSpan::new(1, 0));
     }
 }
