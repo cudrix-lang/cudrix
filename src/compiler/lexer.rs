@@ -105,6 +105,12 @@ impl<'source> Lexer<'source> {
             return Token::new(TokenKind::Number, self.span());
         }
 
+        if current.is_whitespace() {
+            self.scan_whitespace();
+
+            return Token::new(TokenKind::Whitespace, self.span());
+        }
+
         todo!("tokenization is not implemented for this character")
     }
 
@@ -119,6 +125,15 @@ impl<'source> Lexer<'source> {
 
     fn scan_number(&mut self) {
         while matches!(self.current(), Some('0'..='9')) {
+            self.advance();
+        }
+    }
+
+    fn scan_whitespace(&mut self) {
+        while matches!(
+            self.current(),
+            Some(character) if character.is_whitespace()
+        ) {
             self.advance();
         }
     }
@@ -542,5 +557,62 @@ mod tests {
         assert_eq!(token.kind(), TokenKind::Number);
         assert_eq!(source.slice(&token.span()), Some("42"));
         assert_eq!(lexer.current(), Some('a'));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_space_as_whitespace() {
+        let source = SourceText::new(" ");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Whitespace);
+        assert_eq!(token.span(), SourceSpan::new(0, 1));
+        assert_eq!(source.slice(&token.span()), Some(" "));
+    }
+
+    #[test]
+    fn lexer_next_token_groups_consecutive_whitespace() {
+        let source = SourceText::new(" \t\n  ");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Whitespace);
+        assert_eq!(source.slice(&token.span()), Some(" \t\n  "));
+    }
+
+    #[test]
+    fn lexer_whitespace_stops_before_identifier() {
+        let source = SourceText::new("  answer");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Whitespace);
+        assert_eq!(source.slice(&token.span()), Some("  "));
+        assert_eq!(lexer.current(), Some('a'));
+    }
+
+    #[test]
+    fn lexer_next_token_tokenizes_identifier_whitespace_number_sequence() {
+        let source = SourceText::new("answer 42");
+        let mut lexer = Lexer::new(&source);
+
+        let identifier = lexer.next_token();
+        let whitespace = lexer.next_token();
+        let number = lexer.next_token();
+        let end_of_file = lexer.next_token();
+
+        assert_eq!(identifier.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&identifier.span()), Some("answer"));
+
+        assert_eq!(whitespace.kind(), TokenKind::Whitespace);
+        assert_eq!(source.slice(&whitespace.span()), Some(" "));
+
+        assert_eq!(number.kind(), TokenKind::Number);
+        assert_eq!(source.slice(&number.span()), Some("42"));
+
+        assert_eq!(end_of_file.kind(), TokenKind::EndOfFile);
     }
 }
