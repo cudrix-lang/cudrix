@@ -18,6 +18,24 @@ pub enum TokenKind {
     Semicolon,
     Dot,
 
+    Assignment,
+    Plus,
+    Minus,
+    Multiply,
+    Divide,
+    Remainder,
+
+    Equal,
+    NotEqual,
+    LessThan,
+    LessThanOrEqual,
+    GreaterThan,
+    GreaterThanOrEqual,
+
+    LogicalNot,
+    LogicalAnd,
+    LogicalOr,
+
     Unknown,
 }
 
@@ -137,6 +155,10 @@ impl<'source> Lexer<'source> {
             _ => None,
         };
 
+        if let Some(kind) = self.scan_operator() {
+            return Token::new(kind, self.span());
+        }
+
         if let Some(kind) = punctuation_kind {
             self.advance();
 
@@ -146,6 +168,81 @@ impl<'source> Lexer<'source> {
         self.advance();
 
         Token::new(TokenKind::Unknown, self.span())
+    }
+
+    fn match_next(&mut self, expected: char) -> bool {
+        if self.peek() != Some(expected) {
+            return false;
+        }
+
+        self.advance();
+        self.advance();
+
+        true
+    }
+
+    fn scan_operator(&mut self) -> Option<TokenKind> {
+        let current = self.current()?;
+
+        let kind = match current {
+            '=' => {
+                if self.match_next('=') {
+                    return Some(TokenKind::Equal);
+                }
+
+                self.advance();
+                TokenKind::Assignment
+            }
+            '!' => {
+                if self.match_next('=') {
+                    return Some(TokenKind::NotEqual);
+                }
+
+                self.advance();
+                TokenKind::LogicalNot
+            }
+            '<' => {
+                if self.match_next('=') {
+                    return Some(TokenKind::LessThanOrEqual);
+                }
+
+                self.advance();
+                TokenKind::LessThan
+            }
+            '>' => {
+                if self.match_next('=') {
+                    return Some(TokenKind::GreaterThanOrEqual);
+                }
+
+                self.advance();
+                TokenKind::GreaterThan
+            }
+            '+' => {
+                self.advance();
+                TokenKind::Plus
+            }
+            '-' => {
+                self.advance();
+                TokenKind::Minus
+            }
+            '*' => {
+                self.advance();
+                TokenKind::Multiply
+            }
+            '/' => {
+                self.advance();
+                TokenKind::Divide
+            }
+            '%' => {
+                self.advance();
+                TokenKind::Remainder
+            }
+            '&' if self.match_next('&') => return Some(TokenKind::LogicalAnd),
+            '|' if self.match_next('|') => return Some(TokenKind::LogicalOr),
+            _ => return None,
+        };
+
+        Some(kind)
     }
 
     fn scan_identifier(&mut self) {
@@ -726,5 +823,103 @@ mod tests {
         assert_eq!(lexer.next_token().kind(), TokenKind::Semicolon);
         assert_eq!(lexer.next_token().kind(), TokenKind::RightBrace);
         assert_eq!(lexer.next_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_assignment_operator() {
+        let source = SourceText::new("=");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Assignment);
+        assert_eq!(token.span(), SourceSpan::new(0, 1));
+        assert_eq!(source.slice(&token.span()), Some("="));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_equality_operator() {
+        let source = SourceText::new("==");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Equal);
+        assert_eq!(token.span(), SourceSpan::new(0, 2));
+        assert_eq!(source.slice(&token.span()), Some("=="));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_comparison_and_logical_not_operators() {
+        let cases = [
+            ("!", TokenKind::LogicalNot),
+            ("!=", TokenKind::NotEqual),
+            ("<", TokenKind::LessThan),
+            ("<=", TokenKind::LessThanOrEqual),
+            (">", TokenKind::GreaterThan),
+            (">=", TokenKind::GreaterThanOrEqual),
+        ];
+
+        for (source_text, expected_kind) in cases {
+            let source = SourceText::new(source_text);
+            let mut lexer = Lexer::new(&source);
+
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), expected_kind);
+            assert_eq!(source.slice(&token.span()), Some(source_text));
+        }
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_arithmetic_operators() {
+        let cases = [
+            ("+", TokenKind::Plus),
+            ("-", TokenKind::Minus),
+            ("*", TokenKind::Multiply),
+            ("/", TokenKind::Divide),
+            ("%", TokenKind::Remainder),
+        ];
+
+        for (source_text, expected_kind) in cases {
+            let source = SourceText::new(source_text);
+            let mut lexer = Lexer::new(&source);
+
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), expected_kind);
+            assert_eq!(token.span(), SourceSpan::new(0, 1));
+            assert_eq!(source.slice(&token.span()), Some(source_text));
+        }
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_logical_and_or_operators() {
+        let cases = [("&&", TokenKind::LogicalAnd), ("||", TokenKind::LogicalOr)];
+
+        for (source_text, expected_kind) in cases {
+            let source = SourceText::new(source_text);
+            let mut lexer = Lexer::new(&source);
+
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), expected_kind);
+            assert_eq!(token.span(), SourceSpan::new(0, 2));
+            assert_eq!(source.slice(&token.span()), Some(source_text));
+        }
+    }
+
+    #[test]
+    fn lexer_single_ampersand_and_pipe_remain_unknown() {
+        for source_text in ["&", "|"] {
+            let source = SourceText::new(source_text);
+            let mut lexer = Lexer::new(&source);
+
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), TokenKind::Unknown);
+            assert_eq!(token.span(), SourceSpan::new(0, 1));
+            assert_eq!(source.slice(&token.span()), Some(source_text));
+        }
     }
 }
