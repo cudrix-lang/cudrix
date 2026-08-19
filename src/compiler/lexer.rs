@@ -6,6 +6,18 @@ pub enum TokenKind {
     Identifier,
     Number,
     Whitespace,
+
+    LeftParenthesis,
+    RightParenthesis,
+    LeftBrace,
+    RightBrace,
+    LeftBracket,
+    RightBracket,
+    Comma,
+    Colon,
+    Semicolon,
+    Dot,
+
     Unknown,
 }
 
@@ -109,6 +121,26 @@ impl<'source> Lexer<'source> {
             self.scan_whitespace();
 
             return Token::new(TokenKind::Whitespace, self.span());
+        }
+
+        let punctuation_kind = match current {
+            '(' => Some(TokenKind::LeftParenthesis),
+            ')' => Some(TokenKind::RightParenthesis),
+            '{' => Some(TokenKind::LeftBrace),
+            '}' => Some(TokenKind::RightBrace),
+            '[' => Some(TokenKind::LeftBracket),
+            ']' => Some(TokenKind::RightBracket),
+            ',' => Some(TokenKind::Comma),
+            ':' => Some(TokenKind::Colon),
+            ';' => Some(TokenKind::Semicolon),
+            '.' => Some(TokenKind::Dot),
+            _ => None,
+        };
+
+        if let Some(kind) = punctuation_kind {
+            self.advance();
+
+            return Token::new(kind, self.span());
         }
 
         self.advance();
@@ -655,5 +687,44 @@ mod tests {
         assert_eq!(token.kind(), TokenKind::Unknown);
         assert_eq!(token.span(), SourceSpan::new(0, 4));
         assert_eq!(source.slice(&token.span()), Some("🙂"));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_structural_punctuation() {
+        let cases = [
+            ("(", TokenKind::LeftParenthesis),
+            (")", TokenKind::RightParenthesis),
+            ("{", TokenKind::LeftBrace),
+            ("}", TokenKind::RightBrace),
+            ("[", TokenKind::LeftBracket),
+            ("]", TokenKind::RightBracket),
+            (",", TokenKind::Comma),
+            (":", TokenKind::Colon),
+            (";", TokenKind::Semicolon),
+            (".", TokenKind::Dot),
+        ];
+
+        for (source_text, expected_kind) in cases {
+            let source = SourceText::new(source_text);
+            let mut lexer = Lexer::new(&source);
+
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), expected_kind);
+            assert_eq!(token.span(), SourceSpan::new(0, 1));
+            assert_eq!(source.slice(&token.span()), Some(source_text));
+        }
+    }
+
+    #[test]
+    fn lexer_tokenizes_braced_statement_structure() {
+        let source = SourceText::new("{answer;}");
+        let mut lexer = Lexer::new(&source);
+
+        assert_eq!(lexer.next_token().kind(), TokenKind::LeftBrace);
+        assert_eq!(lexer.next_token().kind(), TokenKind::Identifier);
+        assert_eq!(lexer.next_token().kind(), TokenKind::Semicolon);
+        assert_eq!(lexer.next_token().kind(), TokenKind::RightBrace);
+        assert_eq!(lexer.next_token().kind(), TokenKind::EndOfFile);
     }
 }
