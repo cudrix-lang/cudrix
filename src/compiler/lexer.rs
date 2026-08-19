@@ -111,7 +111,9 @@ impl<'source> Lexer<'source> {
             return Token::new(TokenKind::Whitespace, self.span());
         }
 
-        todo!("tokenization is not implemented for this character")
+        self.advance();
+
+        Token::new(TokenKind::Unknown, self.span())
     }
 
     fn scan_identifier(&mut self) {
@@ -614,5 +616,44 @@ mod tests {
         assert_eq!(source.slice(&number.span()), Some("42"));
 
         assert_eq!(end_of_file.kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_unknown_character() {
+        let source = SourceText::new("@");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Unknown);
+        assert_eq!(token.span(), SourceSpan::new(0, 1));
+        assert_eq!(source.slice(&token.span()), Some("@"));
+    }
+
+    #[test]
+    fn lexer_unknown_character_advances_lexer() {
+        let source = SourceText::new("@answer");
+        let mut lexer = Lexer::new(&source);
+
+        let unknown = lexer.next_token();
+        let identifier = lexer.next_token();
+
+        assert_eq!(unknown.kind(), TokenKind::Unknown);
+        assert_eq!(source.slice(&unknown.span()), Some("@"));
+
+        assert_eq!(identifier.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&identifier.span()), Some("answer"));
+    }
+
+    #[test]
+    fn lexer_unknown_unicode_character_uses_utf8_byte_span() {
+        let source = SourceText::new("🙂");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Unknown);
+        assert_eq!(token.span(), SourceSpan::new(0, 4));
+        assert_eq!(source.slice(&token.span()), Some("🙂"));
     }
 }
