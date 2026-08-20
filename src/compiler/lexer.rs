@@ -7,6 +7,8 @@ pub enum TokenKind {
     Number,
     Whitespace,
     LineComment,
+    BlockComment,
+    UnterminatedBlockComment,
 
     LetKeyword,
     VarKeyword,
@@ -179,6 +181,16 @@ impl<'source> Lexer<'source> {
             return Token::new(TokenKind::LineComment, self.span());
         }
 
+        if current == '/' && self.peek() == Some('*') {
+            let kind = if self.scan_block_comment() {
+                TokenKind::BlockComment
+            } else {
+                TokenKind::UnterminatedBlockComment
+            };
+
+            return Token::new(kind, self.span());
+        }
+
         if let Some(kind) = self.scan_operator() {
             return Token::new(kind, self.span());
         }
@@ -212,6 +224,23 @@ impl<'source> Lexer<'source> {
         while !matches!(self.current(), None | Some('\n') | Some('\r')) {
             self.advance();
         }
+    }
+
+    fn scan_block_comment(&mut self) -> bool {
+        self.advance();
+        self.advance();
+
+        while !self.is_at_end() {
+            if self.current() == Some('*') && self.peek() == Some('/') {
+                self.advance();
+                self.advance();
+                return true;
+            }
+
+            self.advance();
+        }
+
+        false
     }
 
     fn scan_operator(&mut self) -> Option<TokenKind> {
@@ -349,6 +378,11 @@ mod tests {
     #[test]
     fn line_comment_token_kind_is_distinct_from_divide() {
         assert_ne!(TokenKind::LineComment, TokenKind::Divide);
+    }
+
+    #[test]
+    fn block_comment_token_kind_is_distinct_from_divide() {
+        assert_ne!(TokenKind::BlockComment, TokenKind::Divide);
     }
 
     #[test]
@@ -1013,6 +1047,83 @@ mod tests {
     }
 
     #[test]
+    fn lexer_next_token_recognizes_block_comment() {
+        let source = SourceText::new("/* comment */");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::BlockComment);
+        assert_eq!(token.span(), SourceSpan::new(0, 13));
+        assert_eq!(source.slice(&token.span()), Some("/* comment */"));
+    }
+
+    #[test]
+    fn lexer_recognizes_empty_block_comment() {
+        let source = SourceText::new("/**/");
+        let mut lexer = Lexer::new(&source);
+
+        let comment = lexer.next_token();
+
+        assert_eq!(comment.kind(), TokenKind::BlockComment);
+        assert_eq!(source.slice(&comment.span()), Some("/**/"));
+    }
+
+    #[test]
+    fn lexer_block_comment_can_span_multiple_lines() {
+        let source = SourceText::new("/* first\nsecond */");
+        let mut lexer = Lexer::new(&source);
+
+        let comment = lexer.next_token();
+
+        assert_eq!(comment.kind(), TokenKind::BlockComment);
+        assert_eq!(source.slice(&comment.span()), Some("/* first\nsecond */"));
+    }
+
+    #[test]
+    fn lexer_block_comment_stops_at_closing_delimiter() {
+        let source = SourceText::new("/* comment */answer");
+        let mut lexer = Lexer::new(&source);
+
+        let comment = lexer.next_token();
+        let identifier = lexer.next_token();
+
+        assert_eq!(comment.kind(), TokenKind::BlockComment);
+        assert_eq!(source.slice(&comment.span()), Some("/* comment */"));
+
+        assert_eq!(identifier.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&identifier.span()), Some("answer"));
+    }
+
+    #[test]
+    fn lexer_block_comment_span_uses_utf8_byte_offsets() {
+        let source = SourceText::new("/* café 🙂 */");
+        let mut lexer = Lexer::new(&source);
+
+        let comment = lexer.next_token();
+
+        assert_eq!(comment.kind(), TokenKind::BlockComment);
+        assert_eq!(comment.span(), SourceSpan::new(0, source.len()));
+        assert_eq!(source.slice(&comment.span()), Some("/* café 🙂 */"));
+    }
+
+    #[test]
+    fn lexer_recognizes_unterminated_block_comment() {
+        let source = SourceText::new("/* comment");
+        let mut lexer = Lexer::new(&source);
+
+        let comment = lexer.next_token();
+        let end_of_file = lexer.next_token();
+
+        assert_eq!(comment.kind(), TokenKind::UnterminatedBlockComment);
+        assert_eq!(comment.span(), SourceSpan::new(0, source.len()));
+        assert_eq!(source.slice(&comment.span()), Some("/* comment"));
+
+        assert_eq!(end_of_file.kind(), TokenKind::EndOfFile);
+        assert_eq!(end_of_file.span(), SourceSpan::new(source.len(), 0));
+    }
+
+    #[test]
     fn lexer_line_comment_stops_before_newline() {
         let source = SourceText::new("// comment\nanswer");
         let mut lexer = Lexer::new(&source);
@@ -1155,6 +1266,36 @@ mod tests {
             assert_eq!(token.kind(), TokenKind::Unknown);
             assert_eq!(token.span(), SourceSpan::new(0, 1));
             assert_eq!(source.slice(&token.span()), Some(source_text));
+        }
+    }
+
+    #[test]
+    fn lexer_tokenizes_mixed_comment_stream() {
+        let source = SourceText::new("let value = 1; // line\n/* block */ value");
+        let mut lexer = Lexer::new(&source);
+
+        let expected = [
+            TokenKind::LetKeyword,
+            TokenKind::Whitespace,
+            TokenKind::Identifier,
+            TokenKind::Whitespace,
+            TokenKind::Assignment,
+            TokenKind::Whitespace,
+            TokenKind::Number,
+            TokenKind::Semicolon,
+            TokenKind::Whitespace,
+            TokenKind::LineComment,
+            TokenKind::Whitespace,
+            TokenKind::BlockComment,
+            TokenKind::Whitespace,
+            TokenKind::Identifier,
+            TokenKind::EndOfFile,
+        ];
+
+        for expected_kind in expected {
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), expected_kind);
         }
     }
 
