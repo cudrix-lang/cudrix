@@ -1161,6 +1161,24 @@ mod tests {
     }
 
     #[test]
+    fn lexer_divide_operator_remains_distinct_from_block_comment() {
+        let source = SourceText::new("/ /* comment */");
+        let mut lexer = Lexer::new(&source);
+
+        let divide = lexer.next_token();
+        let whitespace = lexer.next_token();
+        let comment = lexer.next_token();
+
+        assert_eq!(divide.kind(), TokenKind::Divide);
+        assert_eq!(source.slice(&divide.span()), Some("/"));
+
+        assert_eq!(whitespace.kind(), TokenKind::Whitespace);
+
+        assert_eq!(comment.kind(), TokenKind::BlockComment);
+        assert_eq!(source.slice(&comment.span()), Some("/* comment */"));
+    }
+
+    #[test]
     fn lexer_recognizes_empty_line_comment() {
         let source = SourceText::new("//");
         let mut lexer = Lexer::new(&source);
