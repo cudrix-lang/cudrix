@@ -7,6 +7,23 @@ pub enum TokenKind {
     Number,
     Whitespace,
 
+    LetKeyword,
+    VarKeyword,
+    FunctionKeyword,
+    ImplementationKeyword,
+
+    ReturnKeyword,
+    IfKeyword,
+    ElseIfKeyword,
+    ElseKeyword,
+    WhileKeyword,
+    ForKeyword,
+    BreakKeyword,
+    ContinueKeyword,
+
+    TrueKeyword,
+    FalseKeyword,
+
     LeftParenthesis,
     RightParenthesis,
     LeftBrace,
@@ -126,7 +143,7 @@ impl<'source> Lexer<'source> {
         if current.is_alphabetic() || current == '_' {
             self.scan_identifier();
 
-            return Token::new(TokenKind::Identifier, self.span());
+            return Token::new(self.identifier_kind(), self.span());
         }
 
         if current.is_ascii_digit() {
@@ -243,6 +260,35 @@ impl<'source> Lexer<'source> {
         };
 
         Some(kind)
+    }
+
+    fn identifier_kind(&self) -> TokenKind {
+        let span = self.span();
+        let text = self
+            .source
+            .slice(&span)
+            .expect("lexer identifier span must be valid source text");
+
+        match text {
+            "let" => TokenKind::LetKeyword,
+            "var" => TokenKind::VarKeyword,
+            "function" => TokenKind::FunctionKeyword,
+            "implementation" => TokenKind::ImplementationKeyword,
+
+            "return" => TokenKind::ReturnKeyword,
+            "if" => TokenKind::IfKeyword,
+            "elseif" => TokenKind::ElseIfKeyword,
+            "else" => TokenKind::ElseKeyword,
+            "while" => TokenKind::WhileKeyword,
+            "for" => TokenKind::ForKeyword,
+            "break" => TokenKind::BreakKeyword,
+            "continue" => TokenKind::ContinueKeyword,
+
+            "true" => TokenKind::TrueKeyword,
+            "false" => TokenKind::FalseKeyword,
+
+            _ => TokenKind::Identifier,
+        }
     }
 
     fn scan_identifier(&mut self) {
@@ -653,6 +699,68 @@ mod tests {
 
         assert_eq!(token.kind(), TokenKind::Identifier);
         assert_eq!(source.slice(&token.span()), Some("café42"));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_reserved_keywords() {
+        let cases = [
+            ("let", TokenKind::LetKeyword),
+            ("var", TokenKind::VarKeyword),
+            ("function", TokenKind::FunctionKeyword),
+            ("implementation", TokenKind::ImplementationKeyword),
+            ("return", TokenKind::ReturnKeyword),
+            ("if", TokenKind::IfKeyword),
+            ("elseif", TokenKind::ElseIfKeyword),
+            ("else", TokenKind::ElseKeyword),
+            ("while", TokenKind::WhileKeyword),
+            ("for", TokenKind::ForKeyword),
+            ("break", TokenKind::BreakKeyword),
+            ("continue", TokenKind::ContinueKeyword),
+            ("true", TokenKind::TrueKeyword),
+            ("false", TokenKind::FalseKeyword),
+        ];
+
+        for (source_text, expected_kind) in cases {
+            let source = SourceText::new(source_text);
+            let mut lexer = Lexer::new(&source);
+
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), expected_kind);
+            assert_eq!(source.slice(&token.span()), Some(source_text));
+        }
+    }
+
+    #[test]
+    fn lexer_keywords_are_lowercase_and_case_sensitive() {
+        for source_text in ["Let", "LET", "If", "ELSE", "Implementation"] {
+            let source = SourceText::new(source_text);
+            let mut lexer = Lexer::new(&source);
+
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), TokenKind::Identifier);
+            assert_eq!(source.slice(&token.span()), Some(source_text));
+        }
+    }
+
+    #[test]
+    fn lexer_keyword_prefixes_with_identifier_suffixes_remain_identifiers() {
+        for source_text in [
+            "let2",
+            "if_value",
+            "elseif2",
+            "true_value",
+            "implementation2",
+        ] {
+            let source = SourceText::new(source_text);
+            let mut lexer = Lexer::new(&source);
+
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), TokenKind::Identifier);
+            assert_eq!(source.slice(&token.span()), Some(source_text));
+        }
     }
 
     #[test]
