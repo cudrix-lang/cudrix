@@ -43,12 +43,13 @@ cargo fmt --check
 ```
 
 ```
-Forge
+forge
 ├─ Cargo.lock
 ├─ Cargo.toml
 ├─ README.md
 ├─ src
 │  ├─ compiler
+│  │  ├─ lexer.rs
 │  │  └─ mod.rs
 │  ├─ diagnostics
 │  │  └─ mod.rs
