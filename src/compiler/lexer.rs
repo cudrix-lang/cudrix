@@ -1030,4 +1030,87 @@ mod tests {
             assert_eq!(source.slice(&token.span()), Some(source_text));
         }
     }
+
+    #[test]
+    fn lexer_tokenizes_mixed_forge_source() {
+        let source = SourceText::new("let result = value * 2;");
+        let mut lexer = Lexer::new(&source);
+
+        let expected = [
+            TokenKind::LetKeyword,
+            TokenKind::Whitespace,
+            TokenKind::Identifier,
+            TokenKind::Whitespace,
+            TokenKind::Assignment,
+            TokenKind::Whitespace,
+            TokenKind::Identifier,
+            TokenKind::Whitespace,
+            TokenKind::Multiply,
+            TokenKind::Whitespace,
+            TokenKind::Number,
+            TokenKind::Semicolon,
+            TokenKind::EndOfFile,
+        ];
+
+        for expected_kind in expected {
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), expected_kind);
+        }
+    }
+
+    #[test]
+    fn lexer_tokenizes_control_flow_and_block_structure() {
+        let source = SourceText::new("if value >= 10 { return true; }");
+        let mut lexer = Lexer::new(&source);
+
+        let expected = [
+            TokenKind::IfKeyword,
+            TokenKind::Whitespace,
+            TokenKind::Identifier,
+            TokenKind::Whitespace,
+            TokenKind::GreaterThanOrEqual,
+            TokenKind::Whitespace,
+            TokenKind::Number,
+            TokenKind::Whitespace,
+            TokenKind::LeftBrace,
+            TokenKind::Whitespace,
+            TokenKind::ReturnKeyword,
+            TokenKind::Whitespace,
+            TokenKind::TrueKeyword,
+            TokenKind::Semicolon,
+            TokenKind::Whitespace,
+            TokenKind::RightBrace,
+            TokenKind::EndOfFile,
+        ];
+
+        for expected_kind in expected {
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), expected_kind);
+        }
+    }
+
+    #[test]
+    fn lexer_mixed_token_spans_are_contiguous() {
+        let source = SourceText::new("let result = 42;");
+        let mut lexer = Lexer::new(&source);
+
+        let mut previous_end = 0;
+
+        loop {
+            let token = lexer.next_token();
+            let span = token.span();
+
+            assert_eq!(span.start(), previous_end);
+
+            previous_end = span.start() + span.length();
+
+            if token.kind() == TokenKind::EndOfFile {
+                break;
+            }
+        }
+
+        assert_eq!(previous_end, source.len());
+    }
 }
