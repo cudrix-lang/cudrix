@@ -1,4 +1,5 @@
 use forge::LANGUAGE_NAME;
+use forge::compiler::{Lexer, Token, TokenKind};
 use forge::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 
 #[test]
@@ -17,4 +18,20 @@ fn forge_exposes_source_model() {
     assert_eq!(file.text().slice(&span), Some("answer"));
     assert_eq!(location.line(), 1);
     assert_eq!(location.column(), 5);
+}
+
+#[test]
+fn forge_exposes_lexer_model() {
+    let source = SourceText::new("let answer = 42;");
+    let mut lexer = Lexer::new(&source);
+
+    let token = lexer.next_token();
+
+    assert_eq!(token.kind(), TokenKind::LetKeyword);
+    assert_eq!(token.span(), SourceSpan::new(0, 3));
+
+    let constructed = Token::new(TokenKind::Identifier, SourceSpan::new(4, 6));
+
+    assert_eq!(constructed.kind(), TokenKind::Identifier);
+    assert_eq!(constructed.span(), SourceSpan::new(4, 6));
 }
