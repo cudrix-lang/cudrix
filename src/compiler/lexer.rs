@@ -1140,6 +1140,30 @@ mod tests {
     }
 
     #[test]
+    fn lexer_tokenizes_decimal_number_in_expression() {
+        let source = SourceText::new("let result = 3.14;");
+        let mut lexer = Lexer::new(&source);
+
+        let expected = [
+            TokenKind::LetKeyword,
+            TokenKind::Whitespace,
+            TokenKind::Identifier,
+            TokenKind::Whitespace,
+            TokenKind::Assignment,
+            TokenKind::Whitespace,
+            TokenKind::Number,
+            TokenKind::Semicolon,
+            TokenKind::EndOfFile,
+        ];
+
+        for expected_kind in expected {
+            let token = lexer.next_token();
+
+            assert_eq!(token.kind(), expected_kind);
+        }
+    }
+
+    #[test]
     fn lexer_next_token_recognizes_unknown_character() {
         let source = SourceText::new("@");
         let mut lexer = Lexer::new(&source);
