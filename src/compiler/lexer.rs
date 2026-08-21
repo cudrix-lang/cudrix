@@ -163,6 +163,16 @@ impl<'source> Lexer<'source> {
             return Token::new(TokenKind::Whitespace, self.span());
         }
 
+        if current == '"' {
+            let kind = if self.scan_string() {
+                TokenKind::String
+            } else {
+                TokenKind::UnterminatedString
+            };
+
+            return Token::new(kind, self.span());
+        }
+
         let punctuation_kind = match current {
             '(' => Some(TokenKind::LeftParenthesis),
             ')' => Some(TokenKind::RightParenthesis),
@@ -240,6 +250,25 @@ impl<'source> Lexer<'source> {
             }
 
             self.advance();
+        }
+
+        false
+    }
+
+    fn scan_string(&mut self) -> bool {
+        self.advance();
+
+        while !self.is_at_end() {
+            match self.current() {
+                Some('"') => {
+                    self.advance();
+                    return true;
+                }
+                Some('\n' | '\r') => return false,
+                _ => {
+                    self.advance();
+                }
+            }
         }
 
         false
@@ -886,6 +915,45 @@ mod tests {
 
         assert_eq!(token.kind(), TokenKind::Whitespace);
         assert_eq!(source.slice(&token.span()), Some(" \t\n  "));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_string() {
+        let source = SourceText::new("\"hello\"");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::String);
+        assert_eq!(token.span(), SourceSpan::new(0, 7));
+        assert_eq!(source.slice(&token.span()), Some("\"hello\""));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_empty_string() {
+        let source = SourceText::new("\"\"");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::String);
+        assert_eq!(token.span(), SourceSpan::new(0, 2));
+        assert_eq!(source.slice(&token.span()), Some("\"\""));
+    }
+
+    #[test]
+    fn lexer_string_stops_after_closing_quote() {
+        let source = SourceText::new("\"hello\"answer");
+        let mut lexer = Lexer::new(&source);
+
+        let string = lexer.next_token();
+        let identifier = lexer.next_token();
+
+        assert_eq!(string.kind(), TokenKind::String);
+        assert_eq!(source.slice(&string.span()), Some("\"hello\""));
+
+        assert_eq!(identifier.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&identifier.span()), Some("answer"));
     }
 
     #[test]
