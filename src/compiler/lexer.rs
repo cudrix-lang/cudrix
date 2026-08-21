@@ -992,6 +992,25 @@ mod tests {
     }
 
     #[test]
+    fn lexer_unterminated_string_stops_before_carriage_return_line_feed() {
+        let source = SourceText::new("\"hello\r\nanswer");
+        let mut lexer = Lexer::new(&source);
+
+        let string = lexer.next_token();
+        let whitespace = lexer.next_token();
+        let identifier = lexer.next_token();
+
+        assert_eq!(string.kind(), TokenKind::UnterminatedString);
+        assert_eq!(source.slice(&string.span()), Some("\"hello"));
+
+        assert_eq!(whitespace.kind(), TokenKind::Whitespace);
+        assert_eq!(source.slice(&whitespace.span()), Some("\r\n"));
+
+        assert_eq!(identifier.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&identifier.span()), Some("answer"));
+    }
+
+    #[test]
     fn lexer_string_span_uses_utf8_byte_offsets() {
         let source = SourceText::new("\"café 🙂\"");
         let mut lexer = Lexer::new(&source);
