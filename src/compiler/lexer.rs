@@ -380,6 +380,14 @@ impl<'source> Lexer<'source> {
         while matches!(self.current(), Some('0'..='9')) {
             self.advance();
         }
+
+        if self.current() == Some('.') && matches!(self.peek(), Some('0'..='9')) {
+            self.advance();
+
+            while matches!(self.current(), Some('0'..='9')) {
+                self.advance();
+            }
+        }
     }
 
     fn scan_whitespace(&mut self) {
@@ -892,6 +900,81 @@ mod tests {
         assert_eq!(token.kind(), TokenKind::Number);
         assert_eq!(source.slice(&token.span()), Some("42"));
         assert_eq!(lexer.current(), Some('a'));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_decimal_number() {
+        let source = SourceText::new("3.14");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Number);
+        assert_eq!(token.span(), SourceSpan::new(0, 4));
+        assert_eq!(source.slice(&token.span()), Some("3.14"));
+    }
+
+    #[test]
+    fn lexer_next_token_recognizes_decimal_number_starting_with_zero() {
+        let source = SourceText::new("0.5");
+        let mut lexer = Lexer::new(&source);
+
+        let token = lexer.next_token();
+
+        assert_eq!(token.kind(), TokenKind::Number);
+        assert_eq!(source.slice(&token.span()), Some("0.5"));
+    }
+
+    #[test]
+    fn lexer_number_stops_before_dot_without_following_digit() {
+        let source = SourceText::new("42.foo");
+        let mut lexer = Lexer::new(&source);
+
+        let number = lexer.next_token();
+        let dot = lexer.next_token();
+        let identifier = lexer.next_token();
+
+        assert_eq!(number.kind(), TokenKind::Number);
+        assert_eq!(source.slice(&number.span()), Some("42"));
+
+        assert_eq!(dot.kind(), TokenKind::Dot);
+        assert_eq!(source.slice(&dot.span()), Some("."));
+
+        assert_eq!(identifier.kind(), TokenKind::Identifier);
+        assert_eq!(source.slice(&identifier.span()), Some("foo"));
+    }
+
+    #[test]
+    fn lexer_number_stops_before_trailing_dot() {
+        let source = SourceText::new("42.");
+        let mut lexer = Lexer::new(&source);
+
+        let number = lexer.next_token();
+        let dot = lexer.next_token();
+        let end_of_file = lexer.next_token();
+
+        assert_eq!(number.kind(), TokenKind::Number);
+        assert_eq!(source.slice(&number.span()), Some("42"));
+
+        assert_eq!(dot.kind(), TokenKind::Dot);
+        assert_eq!(source.slice(&dot.span()), Some("."));
+
+        assert_eq!(end_of_file.kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn lexer_leading_dot_remains_separate_from_number() {
+        let source = SourceText::new(".5");
+        let mut lexer = Lexer::new(&source);
+
+        let dot = lexer.next_token();
+        let number = lexer.next_token();
+
+        assert_eq!(dot.kind(), TokenKind::Dot);
+        assert_eq!(source.slice(&dot.span()), Some("."));
+
+        assert_eq!(number.kind(), TokenKind::Number);
+        assert_eq!(source.slice(&number.span()), Some("5"));
     }
 
     #[test]
