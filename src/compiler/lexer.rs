@@ -9,6 +9,8 @@ pub enum TokenKind {
     LineComment,
     BlockComment,
     UnterminatedBlockComment,
+    String,
+    UnterminatedString,
 
     LetKeyword,
     VarKeyword,
@@ -383,6 +385,16 @@ mod tests {
     #[test]
     fn block_comment_token_kind_is_distinct_from_divide() {
         assert_ne!(TokenKind::BlockComment, TokenKind::Divide);
+    }
+
+    #[test]
+    fn string_token_kind_is_distinct_from_identifier() {
+        assert_ne!(TokenKind::String, TokenKind::Identifier);
+    }
+
+    #[test]
+    fn unterminated_string_token_kind_is_distinct_from_string() {
+        assert_ne!(TokenKind::UnterminatedString, TokenKind::String);
     }
 
     #[test]
