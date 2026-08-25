@@ -1,6 +1,7 @@
 pub mod compiler;
 pub mod diagnostics;
 pub mod source;
+pub mod syntax;
 
 pub const LANGUAGE_NAME: &str = "Forge";
 
