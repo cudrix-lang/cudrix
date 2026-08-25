@@ -108,4 +108,40 @@ mod tests {
             TokenKind::UnterminatedBlockComment
         );
     }
+
+    #[test]
+    fn parser_starts_at_end_of_file_for_empty_source() {
+        let source = SourceText::new("");
+        let parser = Parser::new(&source);
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_starts_at_end_of_file_for_trivia_only_source() {
+        let source = SourceText::new("  // comment\n/* block */  ");
+        let parser = Parser::new(&source);
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_advance_reaches_end_of_file() {
+        let source = SourceText::new("answer");
+        let mut parser = Parser::new(&source);
+
+        parser.advance();
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_advance_remains_at_end_of_file() {
+        let source = SourceText::new("");
+        let mut parser = Parser::new(&source);
+
+        parser.advance();
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
 }
