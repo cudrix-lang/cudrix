@@ -1,7 +1,7 @@
 use forge::LANGUAGE_NAME;
 use forge::compiler::{Lexer, Parser, Token, TokenKind};
 use forge::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
-use forge::syntax::LiteralExpressionSyntax;
+use forge::syntax::{LiteralExpressionSyntax, NameExpressionSyntax};
 
 #[test]
 fn forge_exposes_language_name() {
@@ -55,6 +55,14 @@ fn forge_exposes_literal_expression_syntax() {
 }
 
 #[test]
+fn forge_exposes_name_expression_syntax() {
+    let token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
+    let name_expression = NameExpressionSyntax::new(token);
+
+    assert_eq!(name_expression.identifier_token(), token);
+}
+
+#[test]
 fn forge_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -67,6 +75,26 @@ fn forge_parser_exposes_literal_expression_parsing() {
     assert_eq!(
         literal_expression.literal_token().span(),
         SourceSpan::new(0, 2)
+    );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn forge_parser_exposes_name_expression_parsing() {
+    let source = SourceText::new("answer");
+    let mut parser = Parser::new(&source);
+
+    let name_expression = parser
+        .parse_name_expression()
+        .expect("identifier should parse as name expression");
+
+    assert_eq!(
+        name_expression.identifier_token().kind(),
+        TokenKind::Identifier
+    );
+    assert_eq!(
+        name_expression.identifier_token().span(),
+        SourceSpan::new(0, 6)
     );
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
