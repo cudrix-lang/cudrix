@@ -1,5 +1,5 @@
 use forge::LANGUAGE_NAME;
-use forge::compiler::{Lexer, Token, TokenKind};
+use forge::compiler::{Lexer, Parser, Token, TokenKind};
 use forge::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 
 #[test]
@@ -34,4 +34,13 @@ fn forge_exposes_lexer_model() {
 
     assert_eq!(constructed.kind(), TokenKind::Identifier);
     assert_eq!(constructed.span(), SourceSpan::new(4, 6));
+}
+
+#[test]
+fn forge_exposes_parser_model() {
+    let source = SourceText::new("let answer = 42;");
+    let parser = Parser::new(&source);
+
+    assert_eq!(parser.current_token().kind(), TokenKind::LetKeyword);
+    assert_eq!(parser.current_token().span(), SourceSpan::new(0, 3));
 }
