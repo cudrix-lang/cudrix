@@ -1,6 +1,7 @@
 use forge::LANGUAGE_NAME;
 use forge::compiler::{Lexer, Parser, Token, TokenKind};
 use forge::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
+use forge::syntax::LiteralExpressionSyntax;
 
 #[test]
 fn forge_exposes_language_name() {
@@ -43,4 +44,29 @@ fn forge_exposes_parser_model() {
 
     assert_eq!(parser.current_token().kind(), TokenKind::LetKeyword);
     assert_eq!(parser.current_token().span(), SourceSpan::new(0, 3));
+}
+
+#[test]
+fn forge_exposes_literal_expression_syntax() {
+    let token = Token::new(TokenKind::Number, SourceSpan::new(0, 2));
+    let literal_expression = LiteralExpressionSyntax::new(token);
+
+    assert_eq!(literal_expression.literal_token(), token);
+}
+
+#[test]
+fn forge_parser_exposes_literal_expression_parsing() {
+    let source = SourceText::new("42");
+    let mut parser = Parser::new(&source);
+
+    let literal_expression = parser
+        .parse_literal_expression()
+        .expect("number should parse as literal expression");
+
+    assert_eq!(literal_expression.literal_token().kind(), TokenKind::Number);
+    assert_eq!(
+        literal_expression.literal_token().span(),
+        SourceSpan::new(0, 2)
+    );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
