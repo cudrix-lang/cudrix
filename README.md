@@ -41,7 +41,6 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 
 ```
-
 ```
 forge
 ├─ Cargo.lock
@@ -50,7 +49,8 @@ forge
 ├─ src
 │  ├─ compiler
 │  │  ├─ lexer.rs
-│  │  └─ mod.rs
+│  │  ├─ mod.rs
+│  │  └─ parser.rs
 │  ├─ diagnostics
 │  │  └─ mod.rs
 │  ├─ lib.rs

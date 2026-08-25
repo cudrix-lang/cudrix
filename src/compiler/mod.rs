@@ -1,5 +1,6 @@
 //! Compiler orchestration for the Forge toolchain.
 
 pub mod lexer;
+pub mod parser;
 
 pub use lexer::{Lexer, Token, TokenKind};
