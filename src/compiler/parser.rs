@@ -2,7 +2,7 @@
 
 use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
-use crate::syntax::LiteralExpressionSyntax;
+use crate::syntax::{LiteralExpressionSyntax, NameExpressionSyntax};
 
 pub struct Parser<'source> {
     lexer: Lexer<'source>,
@@ -40,6 +40,18 @@ impl<'source> Parser<'source> {
         self.advance();
 
         Some(literal_expression)
+    }
+
+    pub fn parse_name_expression(&mut self) -> Option<NameExpressionSyntax> {
+        if self.current_token.kind() != TokenKind::Identifier {
+            return None;
+        }
+
+        let name_expression = NameExpressionSyntax::new(self.current_token);
+
+        self.advance();
+
+        Some(name_expression)
     }
 
     fn next_significant_token(&mut self) -> Token {
@@ -235,6 +247,64 @@ mod tests {
         let literal_expression = parser.parse_literal_expression();
 
         assert_eq!(literal_expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_name_expression() {
+        let source = SourceText::new("answer");
+        let mut parser = Parser::new(&source);
+
+        let name_expression = parser
+            .parse_name_expression()
+            .expect("identifier should parse as name expression");
+
+        assert_eq!(
+            name_expression.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            name_expression.identifier_token().span(),
+            SourceSpan::new(0, 6)
+        );
+    }
+
+    #[test]
+    fn parser_name_expression_advances_to_next_significant_token() {
+        let source = SourceText::new("answer /* comment */ 42");
+        let mut parser = Parser::new(&source);
+
+        let name_expression = parser
+            .parse_name_expression()
+            .expect("identifier should parse as name expression");
+
+        assert_eq!(
+            name_expression.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::Number);
+    }
+
+    #[test]
+    fn parser_name_expression_rejects_non_identifier_without_advancing() {
+        let source = SourceText::new("42");
+        let mut parser = Parser::new(&source);
+        let current_token = parser.current_token();
+
+        let name_expression = parser.parse_name_expression();
+
+        assert_eq!(name_expression, None);
+        assert_eq!(parser.current_token(), current_token);
+    }
+
+    #[test]
+    fn parser_name_expression_returns_none_at_end_of_file() {
+        let source = SourceText::new("");
+        let mut parser = Parser::new(&source);
+
+        let name_expression = parser.parse_name_expression();
+
+        assert_eq!(name_expression, None);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 }
