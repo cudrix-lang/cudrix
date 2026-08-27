@@ -1,7 +1,7 @@
 use forge::LANGUAGE_NAME;
 use forge::compiler::{Lexer, Parser, Token, TokenKind};
 use forge::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
-use forge::syntax::{LiteralExpressionSyntax, NameExpressionSyntax};
+use forge::syntax::{ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax};
 
 #[test]
 fn forge_exposes_language_name() {
@@ -63,6 +63,15 @@ fn forge_exposes_name_expression_syntax() {
 }
 
 #[test]
+fn forge_exposes_expression_syntax() {
+    let token = Token::new(TokenKind::Number, SourceSpan::new(0, 2));
+    let literal_expression = LiteralExpressionSyntax::new(token);
+    let expression = ExpressionSyntax::Literal(literal_expression);
+
+    assert_eq!(expression, ExpressionSyntax::Literal(literal_expression));
+}
+
+#[test]
 fn forge_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -87,6 +96,30 @@ fn forge_parser_exposes_name_expression_parsing() {
     let name_expression = parser
         .parse_name_expression()
         .expect("identifier should parse as name expression");
+
+    assert_eq!(
+        name_expression.identifier_token().kind(),
+        TokenKind::Identifier
+    );
+    assert_eq!(
+        name_expression.identifier_token().span(),
+        SourceSpan::new(0, 6)
+    );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn forge_parser_exposes_expression_parsing() {
+    let source = SourceText::new("answer");
+    let mut parser = Parser::new(&source);
+
+    let expression = parser
+        .parse_expression()
+        .expect("name should parse as expression");
+
+    let ExpressionSyntax::Name(name_expression) = expression else {
+        panic!("expected name expression");
+    };
 
     assert_eq!(
         name_expression.identifier_token().kind(),
