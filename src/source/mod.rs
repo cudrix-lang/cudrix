@@ -282,23 +282,23 @@ mod tests {
 
     #[test]
     fn source_file_preserves_name() {
-        let file = SourceFile::new("src/main.forge", SourceText::new("let answer = 42;"));
+        let file = SourceFile::new("src/main.cdrx", SourceText::new("let answer = 42;"));
 
-        assert_eq!(file.name(), "src/main.forge");
+        assert_eq!(file.name(), "src/main.cdrx");
     }
 
     #[test]
     fn source_file_preserves_source_text() {
-        let file = SourceFile::new("src/main.forge", SourceText::new("let answer = 42;"));
+        let file = SourceFile::new("src/main.cdrx", SourceText::new("let answer = 42;"));
 
         assert_eq!(file.text().as_str(), "let answer = 42;");
     }
 
     #[test]
     fn source_file_accepts_owned_name() {
-        let name = String::from("src/main.forge");
+        let name = String::from("src/main.cdrx");
         let file = SourceFile::new(name, SourceText::new(""));
 
-        assert_eq!(file.name(), "src/main.forge");
+        assert_eq!(file.name(), "src/main.cdrx");
     }
 }
