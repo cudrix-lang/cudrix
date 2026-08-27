@@ -2,7 +2,7 @@
 
 use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
-use crate::syntax::{LiteralExpressionSyntax, NameExpressionSyntax};
+use crate::syntax::{ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax};
 
 pub struct Parser<'source> {
     lexer: Lexer<'source>,
@@ -22,6 +22,21 @@ impl<'source> Parser<'source> {
 
     pub fn current_token(&self) -> Token {
         self.current_token
+    }
+
+    pub fn parse_expression(&mut self) -> Option<ExpressionSyntax> {
+        match self.current_token.kind() {
+            TokenKind::Number
+            | TokenKind::String
+            | TokenKind::TrueKeyword
+            | TokenKind::FalseKeyword => self
+                .parse_literal_expression()
+                .map(ExpressionSyntax::Literal),
+
+            TokenKind::Identifier => self.parse_name_expression().map(ExpressionSyntax::Name),
+
+            _ => None,
+        }
     }
 
     pub fn parse_literal_expression(&mut self) -> Option<LiteralExpressionSyntax> {
@@ -305,6 +320,87 @@ mod tests {
         let name_expression = parser.parse_name_expression();
 
         assert_eq!(name_expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_literal_as_expression() {
+        let source = SourceText::new("42");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("literal should parse as expression");
+
+        let ExpressionSyntax::Literal(literal_expression) = expression else {
+            panic!("expected literal expression");
+        };
+
+        assert_eq!(literal_expression.literal_token().kind(), TokenKind::Number);
+        assert_eq!(
+            literal_expression.literal_token().span(),
+            SourceSpan::new(0, 2)
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_name_as_expression() {
+        let source = SourceText::new("answer");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("name should parse as expression");
+
+        let ExpressionSyntax::Name(name_expression) = expression else {
+            panic!("expected name expression");
+        };
+
+        assert_eq!(
+            name_expression.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            name_expression.identifier_token().span(),
+            SourceSpan::new(0, 6)
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_expression_advances_to_next_significant_token() {
+        let source = SourceText::new("42 /* comment */ answer");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("literal should parse as expression");
+
+        assert!(matches!(expression, ExpressionSyntax::Literal(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
+    }
+
+    #[test]
+    fn parser_expression_rejects_non_expression_without_advancing() {
+        let source = SourceText::new("(");
+        let mut parser = Parser::new(&source);
+        let current_token = parser.current_token();
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token(), current_token);
+    }
+
+    #[test]
+    fn parser_expression_returns_none_at_end_of_file() {
+        let source = SourceText::new("");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 }
