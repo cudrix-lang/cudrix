@@ -1,1 +1,1 @@
-//! Diagnostic types and reporting for Forge.
+//! Diagnostic types and reporting for Cudrix.

@@ -1571,7 +1571,7 @@ mod tests {
     }
 
     #[test]
-    fn lexer_tokenizes_mixed_forge_source() {
+    fn lexer_tokenizes_mixed_cudrix_source() {
         let source = SourceText::new("let result = value * 2;");
         let mut lexer = Lexer::new(&source);
 

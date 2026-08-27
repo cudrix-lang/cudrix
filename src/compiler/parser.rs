@@ -1,4 +1,4 @@
-//! Parser infrastructure for Forge source code.
+//! Parser infrastructure for Cudrix source code.
 
 use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;

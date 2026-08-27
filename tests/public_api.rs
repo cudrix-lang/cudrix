@@ -1,15 +1,15 @@
-use forge::LANGUAGE_NAME;
-use forge::compiler::{Lexer, Parser, Token, TokenKind};
-use forge::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
-use forge::syntax::{ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax};
+use cudrix::LANGUAGE_NAME;
+use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
+use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
+use cudrix::syntax::{ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax};
 
 #[test]
-fn forge_exposes_language_name() {
-    assert_eq!(LANGUAGE_NAME, "Forge");
+fn cudrix_exposes_language_name() {
+    assert_eq!(LANGUAGE_NAME, "Cudrix");
 }
 
 #[test]
-fn forge_exposes_source_model() {
+fn cudrix_exposes_source_model() {
     let text = SourceText::new("let answer = 42;");
     let span = SourceSpan::new(4, 6);
     let location = SourceLocation::new(1, 5);
@@ -22,7 +22,7 @@ fn forge_exposes_source_model() {
 }
 
 #[test]
-fn forge_exposes_lexer_model() {
+fn cudrix_exposes_lexer_model() {
     let source = SourceText::new("let answer = 42;");
     let mut lexer = Lexer::new(&source);
 
@@ -38,7 +38,7 @@ fn forge_exposes_lexer_model() {
 }
 
 #[test]
-fn forge_exposes_parser_model() {
+fn cudrix_exposes_parser_model() {
     let source = SourceText::new("let answer = 42;");
     let parser = Parser::new(&source);
 
@@ -47,7 +47,7 @@ fn forge_exposes_parser_model() {
 }
 
 #[test]
-fn forge_exposes_literal_expression_syntax() {
+fn cudrix_exposes_literal_expression_syntax() {
     let token = Token::new(TokenKind::Number, SourceSpan::new(0, 2));
     let literal_expression = LiteralExpressionSyntax::new(token);
 
@@ -55,7 +55,7 @@ fn forge_exposes_literal_expression_syntax() {
 }
 
 #[test]
-fn forge_exposes_name_expression_syntax() {
+fn cudrix_exposes_name_expression_syntax() {
     let token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
     let name_expression = NameExpressionSyntax::new(token);
 
@@ -63,7 +63,7 @@ fn forge_exposes_name_expression_syntax() {
 }
 
 #[test]
-fn forge_exposes_expression_syntax() {
+fn cudrix_exposes_expression_syntax() {
     let token = Token::new(TokenKind::Number, SourceSpan::new(0, 2));
     let literal_expression = LiteralExpressionSyntax::new(token);
     let expression = ExpressionSyntax::Literal(literal_expression);
@@ -72,7 +72,7 @@ fn forge_exposes_expression_syntax() {
 }
 
 #[test]
-fn forge_parser_exposes_literal_expression_parsing() {
+fn cudrix_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
 
@@ -89,7 +89,7 @@ fn forge_parser_exposes_literal_expression_parsing() {
 }
 
 #[test]
-fn forge_parser_exposes_name_expression_parsing() {
+fn cudrix_parser_exposes_name_expression_parsing() {
     let source = SourceText::new("answer");
     let mut parser = Parser::new(&source);
 
@@ -109,7 +109,7 @@ fn forge_parser_exposes_name_expression_parsing() {
 }
 
 #[test]
-fn forge_parser_exposes_expression_parsing() {
+fn cudrix_parser_exposes_expression_parsing() {
     let source = SourceText::new("answer");
     let mut parser = Parser::new(&source);
 

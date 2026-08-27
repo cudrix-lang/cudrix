@@ -1,4 +1,4 @@
-//! Compiler orchestration for the Forge toolchain.
+//! Compiler orchestration for the Cudrix toolchain.
 
 pub mod lexer;
 pub mod parser;
