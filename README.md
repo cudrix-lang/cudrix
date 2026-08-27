@@ -1,12 +1,12 @@
-# Forge Programming Language
+# Cudrix Programming Language
 
-Forge is a programming language for building cross-platform desktop applications.
+Cudrix is a programming language for building cross-platform desktop applications.
 
-Forge is currently in early development.
+Cudrix is currently in early development.
 
 ## Development
 
-Forge is being bootstrapped in Rust.
+Cudrix is being bootstrapped in Rust.
 
 ### Requirements
 
@@ -32,7 +32,7 @@ cargo test
 
 ## Quality Gates
 
-All changes to Forge must pass the following checks before they are committed:
+All changes to Cudrix must pass the following checks before they are committed:
 
 ```bash
 cargo build
@@ -42,7 +42,7 @@ cargo fmt --check
 
 ```
 ```
-forge
+cudrix
 ├─ Cargo.lock
 ├─ Cargo.toml
 ├─ README.md
