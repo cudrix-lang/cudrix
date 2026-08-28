@@ -30,10 +30,44 @@ impl NameExpressionSyntax {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParenthesizedExpressionSyntax {
+    left_parenthesis_token: Token,
+    expression: Box<ExpressionSyntax>,
+    right_parenthesis_token: Token,
+}
+
+impl ParenthesizedExpressionSyntax {
+    pub fn new(
+        left_parenthesis_token: Token,
+        expression: ExpressionSyntax,
+        right_parenthesis_token: Token,
+    ) -> Self {
+        Self {
+            left_parenthesis_token,
+            expression: Box::new(expression),
+            right_parenthesis_token,
+        }
+    }
+
+    pub fn left_parenthesis_token(&self) -> Token {
+        self.left_parenthesis_token
+    }
+
+    pub fn expression(&self) -> &ExpressionSyntax {
+        &self.expression
+    }
+
+    pub fn right_parenthesis_token(&self) -> Token {
+        self.right_parenthesis_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExpressionSyntax {
     Literal(LiteralExpressionSyntax),
     Name(NameExpressionSyntax),
+    Parenthesized(ParenthesizedExpressionSyntax),
 }
 
 #[cfg(test)]
@@ -66,5 +100,54 @@ mod tests {
         let expression = ExpressionSyntax::Name(name_expression);
 
         assert_eq!(expression, ExpressionSyntax::Name(name_expression));
+    }
+
+    #[test]
+    fn parenthesized_expression_preserves_tokens_and_expression() {
+        let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(0, 1));
+        let literal_token = Token::new(TokenKind::Number, SourceSpan::new(1, 2));
+        let right_parenthesis_token =
+            Token::new(TokenKind::RightParenthesis, SourceSpan::new(3, 1));
+
+        let expression = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(literal_token));
+
+        let parenthesized_expression = ParenthesizedExpressionSyntax::new(
+            left_parenthesis_token,
+            expression.clone(),
+            right_parenthesis_token,
+        );
+
+        assert_eq!(
+            parenthesized_expression.left_parenthesis_token(),
+            left_parenthesis_token
+        );
+        assert_eq!(parenthesized_expression.expression(), &expression);
+        assert_eq!(
+            parenthesized_expression.right_parenthesis_token(),
+            right_parenthesis_token
+        );
+    }
+
+    #[test]
+    fn expression_syntax_preserves_parenthesized_expression() {
+        let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(0, 1));
+        let literal_token = Token::new(TokenKind::Number, SourceSpan::new(1, 2));
+        let right_parenthesis_token =
+            Token::new(TokenKind::RightParenthesis, SourceSpan::new(3, 1));
+
+        let expression = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(literal_token));
+
+        let parenthesized_expression = ParenthesizedExpressionSyntax::new(
+            left_parenthesis_token,
+            expression,
+            right_parenthesis_token,
+        );
+
+        let expression = ExpressionSyntax::Parenthesized(parenthesized_expression.clone());
+
+        assert_eq!(
+            expression,
+            ExpressionSyntax::Parenthesized(parenthesized_expression)
+        );
     }
 }
