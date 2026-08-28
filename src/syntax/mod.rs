@@ -31,6 +31,29 @@ impl NameExpressionSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UnaryExpressionSyntax {
+    operator_token: Token,
+    operand: Box<ExpressionSyntax>,
+}
+
+impl UnaryExpressionSyntax {
+    pub fn new(operator_token: Token, operand: ExpressionSyntax) -> Self {
+        Self {
+            operator_token,
+            operand: Box::new(operand),
+        }
+    }
+
+    pub fn operator_token(&self) -> Token {
+        self.operator_token
+    }
+
+    pub fn operand(&self) -> &ExpressionSyntax {
+        &self.operand
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParenthesizedExpressionSyntax {
     left_parenthesis_token: Token,
     expression: Box<ExpressionSyntax>,
@@ -67,6 +90,7 @@ impl ParenthesizedExpressionSyntax {
 pub enum ExpressionSyntax {
     Literal(LiteralExpressionSyntax),
     Name(NameExpressionSyntax),
+    Unary(UnaryExpressionSyntax),
     Parenthesized(ParenthesizedExpressionSyntax),
 }
 
@@ -100,6 +124,33 @@ mod tests {
         let expression = ExpressionSyntax::Name(name_expression);
 
         assert_eq!(expression, ExpressionSyntax::Name(name_expression));
+    }
+
+    #[test]
+    fn unary_expression_preserves_operator_and_operand() {
+        let operator_token = Token::new(TokenKind::Minus, SourceSpan::new(0, 1));
+        let literal_token = Token::new(TokenKind::Number, SourceSpan::new(1, 2));
+
+        let operand = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(literal_token));
+
+        let unary_expression = UnaryExpressionSyntax::new(operator_token, operand.clone());
+
+        assert_eq!(unary_expression.operator_token(), operator_token);
+        assert_eq!(unary_expression.operand(), &operand);
+    }
+
+    #[test]
+    fn expression_syntax_preserves_unary_expression() {
+        let operator_token = Token::new(TokenKind::LogicalNot, SourceSpan::new(0, 1));
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(1, 6));
+
+        let operand = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+
+        let unary_expression = UnaryExpressionSyntax::new(operator_token, operand);
+
+        let expression = ExpressionSyntax::Unary(unary_expression.clone());
+
+        assert_eq!(expression, ExpressionSyntax::Unary(unary_expression));
     }
 
     #[test]
