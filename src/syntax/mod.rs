@@ -83,6 +83,39 @@ impl BinaryExpressionSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AssignmentExpressionSyntax {
+    identifier_token: Token,
+    assignment_token: Token,
+    expression: Box<ExpressionSyntax>,
+}
+
+impl AssignmentExpressionSyntax {
+    pub fn new(
+        identifier_token: Token,
+        assignment_token: Token,
+        expression: ExpressionSyntax,
+    ) -> Self {
+        Self {
+            identifier_token,
+            assignment_token,
+            expression: Box::new(expression),
+        }
+    }
+
+    pub fn identifier_token(&self) -> Token {
+        self.identifier_token
+    }
+
+    pub fn assignment_token(&self) -> Token {
+        self.assignment_token
+    }
+
+    pub fn expression(&self) -> &ExpressionSyntax {
+        &self.expression
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParenthesizedExpressionSyntax {
     left_parenthesis_token: Token,
     expression: Box<ExpressionSyntax>,
@@ -121,6 +154,7 @@ pub enum ExpressionSyntax {
     Name(NameExpressionSyntax),
     Unary(UnaryExpressionSyntax),
     Binary(BinaryExpressionSyntax),
+    Assignment(AssignmentExpressionSyntax),
     Parenthesized(ParenthesizedExpressionSyntax),
 }
 
@@ -214,6 +248,41 @@ mod tests {
         let expression = ExpressionSyntax::Binary(binary_expression.clone());
 
         assert_eq!(expression, ExpressionSyntax::Binary(binary_expression));
+    }
+
+    #[test]
+    fn assignment_expression_preserves_identifier_assignment_token_and_expression() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
+        let assignment_token = Token::new(TokenKind::Assignment, SourceSpan::new(7, 1));
+        let literal_token = Token::new(TokenKind::Number, SourceSpan::new(9, 2));
+
+        let expression = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(literal_token));
+
+        let assignment_expression =
+            AssignmentExpressionSyntax::new(identifier_token, assignment_token, expression.clone());
+
+        assert_eq!(assignment_expression.identifier_token(), identifier_token);
+        assert_eq!(assignment_expression.assignment_token(), assignment_token);
+        assert_eq!(assignment_expression.expression(), &expression);
+    }
+
+    #[test]
+    fn expression_syntax_preserves_assignment_expression() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
+        let assignment_token = Token::new(TokenKind::Assignment, SourceSpan::new(7, 1));
+        let literal_token = Token::new(TokenKind::Number, SourceSpan::new(9, 2));
+
+        let expression = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(literal_token));
+
+        let assignment_expression =
+            AssignmentExpressionSyntax::new(identifier_token, assignment_token, expression);
+
+        let expression = ExpressionSyntax::Assignment(assignment_expression.clone());
+
+        assert_eq!(
+            expression,
+            ExpressionSyntax::Assignment(assignment_expression)
+        );
     }
 
     #[test]
