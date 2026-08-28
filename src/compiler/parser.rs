@@ -2,7 +2,9 @@
 
 use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
-use crate::syntax::{ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax};
+use crate::syntax::{
+    ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
+};
 
 pub struct Parser<'source> {
     lexer: Lexer<'source>,
@@ -34,6 +36,10 @@ impl<'source> Parser<'source> {
                 .map(ExpressionSyntax::Literal),
 
             TokenKind::Identifier => self.parse_name_expression().map(ExpressionSyntax::Name),
+
+            TokenKind::LeftParenthesis => self
+                .parse_parenthesized_expression()
+                .map(ExpressionSyntax::Parenthesized),
 
             _ => None,
         }
@@ -67,6 +73,30 @@ impl<'source> Parser<'source> {
         self.advance();
 
         Some(name_expression)
+    }
+
+    pub fn parse_parenthesized_expression(&mut self) -> Option<ParenthesizedExpressionSyntax> {
+        if self.current_token.kind() != TokenKind::LeftParenthesis {
+            return None;
+        }
+
+        let left_parenthesis_token = self.current_token;
+        self.advance();
+
+        let expression = self.parse_expression()?;
+
+        if self.current_token.kind() != TokenKind::RightParenthesis {
+            return None;
+        }
+
+        let right_parenthesis_token = self.current_token;
+        self.advance();
+
+        Some(ParenthesizedExpressionSyntax::new(
+            left_parenthesis_token,
+            expression,
+            right_parenthesis_token,
+        ))
     }
 
     fn next_significant_token(&mut self) -> Token {
@@ -383,7 +413,7 @@ mod tests {
 
     #[test]
     fn parser_expression_rejects_non_expression_without_advancing() {
-        let source = SourceText::new("(");
+        let source = SourceText::new(")");
         let mut parser = Parser::new(&source);
         let current_token = parser.current_token();
 
@@ -402,5 +432,97 @@ mod tests {
 
         assert_eq!(expression, None);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_parenthesized_literal_expression() {
+        let source = SourceText::new("(42)");
+        let mut parser = Parser::new(&source);
+
+        let parenthesized_expression = parser
+            .parse_parenthesized_expression()
+            .expect("parenthesized literal should parse");
+
+        assert_eq!(
+            parenthesized_expression.left_parenthesis_token().kind(),
+            TokenKind::LeftParenthesis
+        );
+
+        let ExpressionSyntax::Literal(literal_expression) = parenthesized_expression.expression()
+        else {
+            panic!("expected literal expression");
+        };
+
+        assert_eq!(literal_expression.literal_token().kind(), TokenKind::Number);
+        assert_eq!(
+            parenthesized_expression.right_parenthesis_token().kind(),
+            TokenKind::RightParenthesis
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_parenthesized_name_expression() {
+        let source = SourceText::new("(answer)");
+        let mut parser = Parser::new(&source);
+
+        let parenthesized_expression = parser
+            .parse_parenthesized_expression()
+            .expect("parenthesized name should parse");
+
+        let ExpressionSyntax::Name(name_expression) = parenthesized_expression.expression() else {
+            panic!("expected name expression");
+        };
+
+        assert_eq!(
+            name_expression.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_nested_parenthesized_expression() {
+        let source = SourceText::new("((42))");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("nested parenthesized expression should parse");
+
+        let ExpressionSyntax::Parenthesized(outer) = expression else {
+            panic!("expected outer parenthesized expression");
+        };
+
+        assert!(matches!(
+            outer.expression(),
+            ExpressionSyntax::Parenthesized(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_parenthesized_expression_as_expression() {
+        let source = SourceText::new("(42)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("parenthesized expression should parse as expression");
+
+        assert!(matches!(expression, ExpressionSyntax::Parenthesized(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parenthesized_expression_rejects_non_left_parenthesis_without_advancing() {
+        let source = SourceText::new("42");
+        let mut parser = Parser::new(&source);
+        let current_token = parser.current_token();
+
+        let parenthesized_expression = parser.parse_parenthesized_expression();
+
+        assert_eq!(parenthesized_expression, None);
+        assert_eq!(parser.current_token(), current_token);
     }
 }
