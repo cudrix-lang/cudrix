@@ -3,8 +3,8 @@
 use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
-    BinaryExpressionSyntax, ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax,
-    ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    AssignmentExpressionSyntax, BinaryExpressionSyntax, ExpressionSyntax, LiteralExpressionSyntax,
+    NameExpressionSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -28,7 +28,32 @@ impl<'source> Parser<'source> {
     }
 
     pub fn parse_expression(&mut self) -> Option<ExpressionSyntax> {
-        self.parse_binary_expression(0)
+        self.parse_assignment_expression()
+    }
+
+    fn parse_assignment_expression(&mut self) -> Option<ExpressionSyntax> {
+        let left = self.parse_binary_expression(0)?;
+
+        if self.current_token.kind() != TokenKind::Assignment {
+            return Some(left);
+        }
+
+        let ExpressionSyntax::Name(name_expression) = left else {
+            return Some(left);
+        };
+
+        let assignment_token = self.current_token;
+        self.advance();
+
+        let expression = self.parse_assignment_expression()?;
+
+        Some(ExpressionSyntax::Assignment(
+            AssignmentExpressionSyntax::new(
+                name_expression.identifier_token(),
+                assignment_token,
+                expression,
+            ),
+        ))
     }
 
     fn parse_binary_expression(&mut self, parent_precedence: u8) -> Option<ExpressionSyntax> {
@@ -766,6 +791,49 @@ mod tests {
         };
 
         assert_eq!(inner.operator_token().kind(), TokenKind::Minus);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_assignment_expression() {
+        let source = SourceText::new("answer = 42");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("assignment expression should parse");
+
+        let ExpressionSyntax::Assignment(assignment) = expression else {
+            panic!("expected assignment expression");
+        };
+
+        assert_eq!(assignment.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(assignment.assignment_token().kind(), TokenKind::Assignment);
+        assert!(matches!(
+            assignment.expression(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_assignment_expression_accepts_binary_expression_on_right() {
+        let source = SourceText::new("answer = 1 + 2");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("assignment with binary expression should parse");
+
+        let ExpressionSyntax::Assignment(assignment) = expression else {
+            panic!("expected assignment expression");
+        };
+
+        let ExpressionSyntax::Binary(binary) = assignment.expression() else {
+            panic!("expected binary expression on assignment right side");
+        };
+
+        assert_eq!(binary.operator_token().kind(), TokenKind::Plus);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 
