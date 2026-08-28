@@ -1,7 +1,9 @@
 use cudrix::LANGUAGE_NAME;
 use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
-use cudrix::syntax::{ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax};
+use cudrix::syntax::{
+    ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
+};
 
 #[test]
 fn cudrix_exposes_language_name() {
@@ -63,6 +65,31 @@ fn cudrix_exposes_name_expression_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_parenthesized_expression_syntax() {
+    let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(0, 1));
+    let literal_token = Token::new(TokenKind::Number, SourceSpan::new(1, 2));
+    let right_parenthesis_token = Token::new(TokenKind::RightParenthesis, SourceSpan::new(3, 1));
+
+    let expression = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(literal_token));
+
+    let parenthesized_expression = ParenthesizedExpressionSyntax::new(
+        left_parenthesis_token,
+        expression.clone(),
+        right_parenthesis_token,
+    );
+
+    assert_eq!(
+        parenthesized_expression.left_parenthesis_token(),
+        left_parenthesis_token
+    );
+    assert_eq!(parenthesized_expression.expression(), &expression);
+    assert_eq!(
+        parenthesized_expression.right_parenthesis_token(),
+        right_parenthesis_token
+    );
+}
+
+#[test]
 fn cudrix_exposes_expression_syntax() {
     let token = Token::new(TokenKind::Number, SourceSpan::new(0, 2));
     let literal_expression = LiteralExpressionSyntax::new(token);
@@ -104,6 +131,33 @@ fn cudrix_parser_exposes_name_expression_parsing() {
     assert_eq!(
         name_expression.identifier_token().span(),
         SourceSpan::new(0, 6)
+    );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_parenthesized_expression_parsing() {
+    let source = SourceText::new("(42)");
+    let mut parser = Parser::new(&source);
+
+    let parenthesized_expression = parser
+        .parse_parenthesized_expression()
+        .expect("parenthesized literal should parse");
+
+    assert_eq!(
+        parenthesized_expression.left_parenthesis_token().kind(),
+        TokenKind::LeftParenthesis
+    );
+
+    let ExpressionSyntax::Literal(literal_expression) = parenthesized_expression.expression()
+    else {
+        panic!("expected literal expression");
+    };
+
+    assert_eq!(literal_expression.literal_token().kind(), TokenKind::Number);
+    assert_eq!(
+        parenthesized_expression.right_parenthesis_token().kind(),
+        TokenKind::RightParenthesis
     );
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
