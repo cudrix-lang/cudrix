@@ -793,4 +793,100 @@ mod tests {
         ));
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
+
+    #[test]
+    fn parser_parentheses_override_binary_precedence() {
+        let source = SourceText::new("(1 + 2) * 3");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("parenthesized binary expression should parse");
+
+        let ExpressionSyntax::Binary(multiplication) = expression else {
+            panic!("expected multiplication expression");
+        };
+
+        assert_eq!(multiplication.operator_token().kind(), TokenKind::Multiply);
+
+        let ExpressionSyntax::Parenthesized(parenthesized) = multiplication.left() else {
+            panic!("expected parenthesized left operand");
+        };
+
+        let ExpressionSyntax::Binary(addition) = parenthesized.expression() else {
+            panic!("expected addition inside parentheses");
+        };
+
+        assert_eq!(addition.operator_token().kind(), TokenKind::Plus);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_comparison_binds_tighter_than_equality() {
+        let source = SourceText::new("1 < 2 == true");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("comparison and equality expression should parse");
+
+        let ExpressionSyntax::Binary(equality) = expression else {
+            panic!("expected equality expression");
+        };
+
+        assert_eq!(equality.operator_token().kind(), TokenKind::Equal);
+
+        let ExpressionSyntax::Binary(comparison) = equality.left() else {
+            panic!("expected comparison on left side");
+        };
+
+        assert_eq!(comparison.operator_token().kind(), TokenKind::LessThan);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_logical_and_binds_tighter_than_logical_or() {
+        let source = SourceText::new("true || false && true");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("logical expression should parse");
+
+        let ExpressionSyntax::Binary(logical_or) = expression else {
+            panic!("expected logical-or expression");
+        };
+
+        assert_eq!(logical_or.operator_token().kind(), TokenKind::LogicalOr);
+
+        let ExpressionSyntax::Binary(logical_and) = logical_or.right() else {
+            panic!("expected logical-and expression on right side");
+        };
+
+        assert_eq!(logical_and.operator_token().kind(), TokenKind::LogicalAnd);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_arithmetic_binds_tighter_than_comparison() {
+        let source = SourceText::new("1 + 2 < 4");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("arithmetic and comparison expression should parse");
+
+        let ExpressionSyntax::Binary(comparison) = expression else {
+            panic!("expected comparison expression");
+        };
+
+        assert_eq!(comparison.operator_token().kind(), TokenKind::LessThan);
+
+        let ExpressionSyntax::Binary(addition) = comparison.left() else {
+            panic!("expected addition on left side");
+        };
+
+        assert_eq!(addition.operator_token().kind(), TokenKind::Plus);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
 }
