@@ -3,6 +3,7 @@ use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
     ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
+    UnaryExpressionSyntax,
 };
 
 #[test]
@@ -62,6 +63,19 @@ fn cudrix_exposes_name_expression_syntax() {
     let name_expression = NameExpressionSyntax::new(token);
 
     assert_eq!(name_expression.identifier_token(), token);
+}
+
+#[test]
+fn cudrix_exposes_unary_expression_syntax() {
+    let operator_token = Token::new(TokenKind::Minus, SourceSpan::new(0, 1));
+    let literal_token = Token::new(TokenKind::Number, SourceSpan::new(1, 2));
+
+    let operand = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(literal_token));
+
+    let unary_expression = UnaryExpressionSyntax::new(operator_token, operand.clone());
+
+    assert_eq!(unary_expression.operator_token(), operator_token);
+    assert_eq!(unary_expression.operand(), &operand);
 }
 
 #[test]
@@ -131,6 +145,33 @@ fn cudrix_parser_exposes_name_expression_parsing() {
     assert_eq!(
         name_expression.identifier_token().span(),
         SourceSpan::new(0, 6)
+    );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_unary_expression_parsing() {
+    let source = SourceText::new("-42");
+    let mut parser = Parser::new(&source);
+
+    let unary_expression = parser
+        .parse_unary_expression()
+        .expect("unary literal should parse");
+
+    assert_eq!(unary_expression.operator_token().kind(), TokenKind::Minus);
+    assert_eq!(
+        unary_expression.operator_token().span(),
+        SourceSpan::new(0, 1)
+    );
+
+    let ExpressionSyntax::Literal(literal_expression) = unary_expression.operand() else {
+        panic!("expected literal operand");
+    };
+
+    assert_eq!(literal_expression.literal_token().kind(), TokenKind::Number);
+    assert_eq!(
+        literal_expression.literal_token().span(),
+        SourceSpan::new(1, 2)
     );
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
