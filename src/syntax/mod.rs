@@ -54,6 +54,35 @@ impl UnaryExpressionSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BinaryExpressionSyntax {
+    left: Box<ExpressionSyntax>,
+    operator_token: Token,
+    right: Box<ExpressionSyntax>,
+}
+
+impl BinaryExpressionSyntax {
+    pub fn new(left: ExpressionSyntax, operator_token: Token, right: ExpressionSyntax) -> Self {
+        Self {
+            left: Box::new(left),
+            operator_token,
+            right: Box::new(right),
+        }
+    }
+
+    pub fn left(&self) -> &ExpressionSyntax {
+        &self.left
+    }
+
+    pub fn operator_token(&self) -> Token {
+        self.operator_token
+    }
+
+    pub fn right(&self) -> &ExpressionSyntax {
+        &self.right
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParenthesizedExpressionSyntax {
     left_parenthesis_token: Token,
     expression: Box<ExpressionSyntax>,
@@ -91,6 +120,7 @@ pub enum ExpressionSyntax {
     Literal(LiteralExpressionSyntax),
     Name(NameExpressionSyntax),
     Unary(UnaryExpressionSyntax),
+    Binary(BinaryExpressionSyntax),
     Parenthesized(ParenthesizedExpressionSyntax),
 }
 
@@ -151,6 +181,39 @@ mod tests {
         let expression = ExpressionSyntax::Unary(unary_expression.clone());
 
         assert_eq!(expression, ExpressionSyntax::Unary(unary_expression));
+    }
+
+    #[test]
+    fn binary_expression_preserves_operands_and_operator() {
+        let left_token = Token::new(TokenKind::Number, SourceSpan::new(0, 1));
+        let operator_token = Token::new(TokenKind::Plus, SourceSpan::new(2, 1));
+        let right_token = Token::new(TokenKind::Number, SourceSpan::new(4, 1));
+
+        let left = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(left_token));
+        let right = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(right_token));
+
+        let binary_expression =
+            BinaryExpressionSyntax::new(left.clone(), operator_token, right.clone());
+
+        assert_eq!(binary_expression.left(), &left);
+        assert_eq!(binary_expression.operator_token(), operator_token);
+        assert_eq!(binary_expression.right(), &right);
+    }
+
+    #[test]
+    fn expression_syntax_preserves_binary_expression() {
+        let left_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 4));
+        let operator_token = Token::new(TokenKind::Plus, SourceSpan::new(5, 1));
+        let right_token = Token::new(TokenKind::Number, SourceSpan::new(7, 1));
+
+        let left = ExpressionSyntax::Name(NameExpressionSyntax::new(left_token));
+        let right = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(right_token));
+
+        let binary_expression = BinaryExpressionSyntax::new(left, operator_token, right);
+
+        let expression = ExpressionSyntax::Binary(binary_expression.clone());
+
+        assert_eq!(expression, ExpressionSyntax::Binary(binary_expression));
     }
 
     #[test]
