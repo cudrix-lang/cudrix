@@ -4,6 +4,7 @@ use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
     ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
+    UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -28,6 +29,10 @@ impl<'source> Parser<'source> {
 
     pub fn parse_expression(&mut self) -> Option<ExpressionSyntax> {
         match self.current_token.kind() {
+            TokenKind::Plus | TokenKind::Minus | TokenKind::LogicalNot => {
+                self.parse_unary_expression().map(ExpressionSyntax::Unary)
+            }
+
             TokenKind::Number
             | TokenKind::String
             | TokenKind::TrueKeyword
@@ -73,6 +78,22 @@ impl<'source> Parser<'source> {
         self.advance();
 
         Some(name_expression)
+    }
+
+    pub fn parse_unary_expression(&mut self) -> Option<UnaryExpressionSyntax> {
+        if !matches!(
+            self.current_token.kind(),
+            TokenKind::Plus | TokenKind::Minus | TokenKind::LogicalNot
+        ) {
+            return None;
+        }
+
+        let operator_token = self.current_token;
+        self.advance();
+
+        let operand = self.parse_expression()?;
+
+        Some(UnaryExpressionSyntax::new(operator_token, operand))
     }
 
     pub fn parse_parenthesized_expression(&mut self) -> Option<ParenthesizedExpressionSyntax> {
@@ -523,6 +544,109 @@ mod tests {
         let parenthesized_expression = parser.parse_parenthesized_expression();
 
         assert_eq!(parenthesized_expression, None);
+        assert_eq!(parser.current_token(), current_token);
+    }
+
+    #[test]
+    fn parser_parses_unary_literal_expression() {
+        let source = SourceText::new("-42");
+        let mut parser = Parser::new(&source);
+
+        let unary_expression = parser
+            .parse_unary_expression()
+            .expect("unary literal should parse");
+
+        assert_eq!(unary_expression.operator_token().kind(), TokenKind::Minus);
+
+        let ExpressionSyntax::Literal(literal_expression) = unary_expression.operand() else {
+            panic!("expected literal operand");
+        };
+
+        assert_eq!(literal_expression.literal_token().kind(), TokenKind::Number);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_unary_name_expression() {
+        let source = SourceText::new("!ready");
+        let mut parser = Parser::new(&source);
+
+        let unary_expression = parser
+            .parse_unary_expression()
+            .expect("unary name should parse");
+
+        assert_eq!(
+            unary_expression.operator_token().kind(),
+            TokenKind::LogicalNot
+        );
+
+        assert!(matches!(
+            unary_expression.operand(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_nested_unary_expression() {
+        let source = SourceText::new("--42");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("nested unary expression should parse");
+
+        let ExpressionSyntax::Unary(outer) = expression else {
+            panic!("expected outer unary expression");
+        };
+
+        assert_eq!(outer.operator_token().kind(), TokenKind::Minus);
+        assert!(matches!(outer.operand(), ExpressionSyntax::Unary(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_parenthesized_expression_as_unary_operand() {
+        let source = SourceText::new("-(42)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("parenthesized unary operand should parse");
+
+        let ExpressionSyntax::Unary(unary_expression) = expression else {
+            panic!("expected unary expression");
+        };
+
+        assert!(matches!(
+            unary_expression.operand(),
+            ExpressionSyntax::Parenthesized(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_unary_expression_as_expression() {
+        let source = SourceText::new("+42");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("unary expression should parse as expression");
+
+        assert!(matches!(expression, ExpressionSyntax::Unary(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_unary_expression_rejects_non_unary_operator_without_advancing() {
+        let source = SourceText::new("42");
+        let mut parser = Parser::new(&source);
+        let current_token = parser.current_token();
+
+        let unary_expression = parser.parse_unary_expression();
+
+        assert_eq!(unary_expression, None);
         assert_eq!(parser.current_token(), current_token);
     }
 }
