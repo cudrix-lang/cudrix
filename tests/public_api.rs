@@ -2,8 +2,8 @@ use cudrix::LANGUAGE_NAME;
 use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
-    ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
-    UnaryExpressionSyntax,
+    BinaryExpressionSyntax, ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax,
+    ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 #[test]
@@ -76,6 +76,22 @@ fn cudrix_exposes_unary_expression_syntax() {
 
     assert_eq!(unary_expression.operator_token(), operator_token);
     assert_eq!(unary_expression.operand(), &operand);
+}
+
+#[test]
+fn cudrix_exposes_binary_expression_syntax() {
+    let left_token = Token::new(TokenKind::Number, SourceSpan::new(0, 1));
+    let operator_token = Token::new(TokenKind::Plus, SourceSpan::new(2, 1));
+    let right_token = Token::new(TokenKind::Number, SourceSpan::new(4, 1));
+
+    let left = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(left_token));
+    let right = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(right_token));
+
+    let expression = BinaryExpressionSyntax::new(left, operator_token, right);
+
+    assert_eq!(expression.operator_token(), operator_token);
+    assert!(matches!(expression.left(), ExpressionSyntax::Literal(_)));
+    assert!(matches!(expression.right(), ExpressionSyntax::Literal(_)));
 }
 
 #[test]
@@ -173,6 +189,31 @@ fn cudrix_parser_exposes_unary_expression_parsing() {
         literal_expression.literal_token().span(),
         SourceSpan::new(1, 2)
     );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_binary_expression_parsing() {
+    let source = SourceText::new("1 + 2");
+    let mut parser = Parser::new(&source);
+
+    let expression = parser
+        .parse_expression()
+        .expect("binary expression should parse through the public API");
+
+    let ExpressionSyntax::Binary(binary_expression) = expression else {
+        panic!("expected binary expression");
+    };
+
+    assert_eq!(binary_expression.operator_token().kind(), TokenKind::Plus);
+    assert!(matches!(
+        binary_expression.left(),
+        ExpressionSyntax::Literal(_)
+    ));
+    assert!(matches!(
+        binary_expression.right(),
+        ExpressionSyntax::Literal(_)
+    ));
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
 
