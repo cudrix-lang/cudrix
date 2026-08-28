@@ -3,8 +3,8 @@
 use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
-    ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
-    UnaryExpressionSyntax,
+    BinaryExpressionSyntax, ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax,
+    ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -28,6 +28,32 @@ impl<'source> Parser<'source> {
     }
 
     pub fn parse_expression(&mut self) -> Option<ExpressionSyntax> {
+        self.parse_binary_expression(0)
+    }
+
+    fn parse_binary_expression(&mut self, parent_precedence: u8) -> Option<ExpressionSyntax> {
+        let mut left = self.parse_unary_or_primary_expression()?;
+
+        loop {
+            let precedence = Self::binary_operator_precedence(self.current_token.kind());
+
+            if precedence == 0 || precedence <= parent_precedence {
+                break;
+            }
+
+            let operator_token = self.current_token;
+            self.advance();
+
+            let right = self.parse_binary_expression(precedence)?;
+
+            left =
+                ExpressionSyntax::Binary(BinaryExpressionSyntax::new(left, operator_token, right));
+        }
+
+        Some(left)
+    }
+
+    fn parse_unary_or_primary_expression(&mut self) -> Option<ExpressionSyntax> {
         match self.current_token.kind() {
             TokenKind::Plus | TokenKind::Minus | TokenKind::LogicalNot => {
                 self.parse_unary_expression().map(ExpressionSyntax::Unary)
@@ -47,6 +73,26 @@ impl<'source> Parser<'source> {
                 .map(ExpressionSyntax::Parenthesized),
 
             _ => None,
+        }
+    }
+
+    fn binary_operator_precedence(kind: TokenKind) -> u8 {
+        match kind {
+            TokenKind::LogicalOr => 1,
+            TokenKind::LogicalAnd => 2,
+
+            TokenKind::Equal | TokenKind::NotEqual => 3,
+
+            TokenKind::LessThan
+            | TokenKind::LessThanOrEqual
+            | TokenKind::GreaterThan
+            | TokenKind::GreaterThanOrEqual => 4,
+
+            TokenKind::Plus | TokenKind::Minus => 5,
+
+            TokenKind::Multiply | TokenKind::Divide | TokenKind::Remainder => 6,
+
+            _ => 0,
         }
     }
 
@@ -91,7 +137,7 @@ impl<'source> Parser<'source> {
         let operator_token = self.current_token;
         self.advance();
 
-        let operand = self.parse_expression()?;
+        let operand = self.parse_unary_or_primary_expression()?;
 
         Some(UnaryExpressionSyntax::new(operator_token, operand))
     }
@@ -648,5 +694,103 @@ mod tests {
 
         assert_eq!(unary_expression, None);
         assert_eq!(parser.current_token(), current_token);
+    }
+
+    #[test]
+    fn parser_parses_binary_literal_expression() {
+        let source = SourceText::new("1 + 2");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("binary literal expression should parse");
+
+        let ExpressionSyntax::Binary(binary_expression) = expression else {
+            panic!("expected binary expression");
+        };
+
+        assert_eq!(binary_expression.operator_token().kind(), TokenKind::Plus);
+        assert!(matches!(
+            binary_expression.left(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert!(matches!(
+            binary_expression.right(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_binary_expression_respects_multiplicative_precedence() {
+        let source = SourceText::new("1 + 2 * 3");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("binary expression should parse");
+
+        let ExpressionSyntax::Binary(addition) = expression else {
+            panic!("expected addition expression");
+        };
+
+        assert_eq!(addition.operator_token().kind(), TokenKind::Plus);
+        assert!(matches!(addition.left(), ExpressionSyntax::Literal(_)));
+
+        let ExpressionSyntax::Binary(multiplication) = addition.right() else {
+            panic!("expected multiplication on right side");
+        };
+
+        assert_eq!(multiplication.operator_token().kind(), TokenKind::Multiply);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_binary_expression_is_left_associative() {
+        let source = SourceText::new("10 - 3 - 2");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("binary expression should parse");
+
+        let ExpressionSyntax::Binary(outer) = expression else {
+            panic!("expected outer binary expression");
+        };
+
+        assert_eq!(outer.operator_token().kind(), TokenKind::Minus);
+        assert!(matches!(outer.right(), ExpressionSyntax::Literal(_)));
+
+        let ExpressionSyntax::Binary(inner) = outer.left() else {
+            panic!("expected left-associated binary expression");
+        };
+
+        assert_eq!(inner.operator_token().kind(), TokenKind::Minus);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_unary_expression_binds_tighter_than_binary_expression() {
+        let source = SourceText::new("-1 + 2");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("unary and binary expression should parse");
+
+        let ExpressionSyntax::Binary(binary_expression) = expression else {
+            panic!("expected binary expression");
+        };
+
+        assert_eq!(binary_expression.operator_token().kind(), TokenKind::Plus);
+        assert!(matches!(
+            binary_expression.left(),
+            ExpressionSyntax::Unary(_)
+        ));
+        assert!(matches!(
+            binary_expression.right(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 }
