@@ -2,8 +2,8 @@ use cudrix::LANGUAGE_NAME;
 use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
-    BinaryExpressionSyntax, ExpressionSyntax, LiteralExpressionSyntax, NameExpressionSyntax,
-    ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    AssignmentExpressionSyntax, BinaryExpressionSyntax, ExpressionSyntax, LiteralExpressionSyntax,
+    NameExpressionSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 #[test]
@@ -92,6 +92,31 @@ fn cudrix_exposes_binary_expression_syntax() {
     assert_eq!(expression.operator_token(), operator_token);
     assert!(matches!(expression.left(), ExpressionSyntax::Literal(_)));
     assert!(matches!(expression.right(), ExpressionSyntax::Literal(_)));
+}
+
+#[test]
+fn cudrix_exposes_assignment_expression_syntax() {
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
+    let assignment_token = Token::new(TokenKind::Assignment, SourceSpan::new(7, 1));
+    let literal_token = Token::new(TokenKind::Number, SourceSpan::new(9, 2));
+
+    let expression = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(literal_token));
+
+    let assignment_expression =
+        AssignmentExpressionSyntax::new(identifier_token, assignment_token, expression);
+
+    assert_eq!(
+        assignment_expression.identifier_token().kind(),
+        TokenKind::Identifier
+    );
+    assert_eq!(
+        assignment_expression.assignment_token().kind(),
+        TokenKind::Assignment
+    );
+    assert!(matches!(
+        assignment_expression.expression(),
+        ExpressionSyntax::Literal(_)
+    ));
 }
 
 #[test]
@@ -212,6 +237,28 @@ fn cudrix_parser_exposes_binary_expression_parsing() {
     ));
     assert!(matches!(
         binary_expression.right(),
+        ExpressionSyntax::Literal(_)
+    ));
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_assignment_expression_parsing() {
+    let source = SourceText::new("answer = 42");
+    let mut parser = Parser::new(&source);
+
+    let expression = parser
+        .parse_assignment_expression()
+        .expect("assignment expression should parse through public API");
+
+    let ExpressionSyntax::Assignment(assignment) = expression else {
+        panic!("expected assignment expression");
+    };
+
+    assert_eq!(assignment.identifier_token().kind(), TokenKind::Identifier);
+    assert_eq!(assignment.assignment_token().kind(), TokenKind::Assignment);
+    assert!(matches!(
+        assignment.expression(),
         ExpressionSyntax::Literal(_)
     ));
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);

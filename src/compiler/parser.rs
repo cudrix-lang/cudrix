@@ -31,7 +31,7 @@ impl<'source> Parser<'source> {
         self.parse_assignment_expression()
     }
 
-    fn parse_assignment_expression(&mut self) -> Option<ExpressionSyntax> {
+    pub fn parse_assignment_expression(&mut self) -> Option<ExpressionSyntax> {
         let left = self.parse_binary_expression(0)?;
 
         if self.current_token.kind() != TokenKind::Assignment {
