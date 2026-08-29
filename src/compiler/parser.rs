@@ -838,6 +838,92 @@ mod tests {
     }
 
     #[test]
+    fn parser_assignment_expression_is_right_associative() {
+        let source = SourceText::new("a = b = 1");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("chained assignment expression should parse");
+
+        let ExpressionSyntax::Assignment(outer_assignment) = expression else {
+            panic!("expected outer assignment expression");
+        };
+
+        assert_eq!(
+            outer_assignment.identifier_token().span(),
+            SourceSpan::new(0, 1)
+        );
+
+        let ExpressionSyntax::Assignment(inner_assignment) = outer_assignment.expression() else {
+            panic!("expected assignment expression on right side");
+        };
+
+        assert_eq!(
+            inner_assignment.identifier_token().span(),
+            SourceSpan::new(4, 1)
+        );
+        assert!(matches!(
+            inner_assignment.expression(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_binary_expression_binds_tighter_than_assignment_expression() {
+        let source = SourceText::new("a = 1 + 2 * 3");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("assignment with binary expression should parse");
+
+        let ExpressionSyntax::Assignment(assignment) = expression else {
+            panic!("expected assignment expression");
+        };
+
+        let ExpressionSyntax::Binary(addition) = assignment.expression() else {
+            panic!("expected addition on assignment right side");
+        };
+
+        assert_eq!(addition.operator_token().kind(), TokenKind::Plus);
+
+        let ExpressionSyntax::Binary(multiplication) = addition.right() else {
+            panic!("expected multiplication on addition right side");
+        };
+
+        assert_eq!(multiplication.operator_token().kind(), TokenKind::Multiply);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_assignment_expression_requires_identifier_target() {
+        let source = SourceText::new("1 = 2");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("left literal should parse as expression");
+
+        assert!(matches!(expression, ExpressionSyntax::Literal(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::Assignment);
+    }
+
+    #[test]
+    fn parser_assignment_expression_rejects_parenthesized_target() {
+        let source = SourceText::new("(a) = 1");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("parenthesized name should parse as expression");
+
+        assert!(matches!(expression, ExpressionSyntax::Parenthesized(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::Assignment);
+    }
+
+    #[test]
     fn parser_unary_expression_binds_tighter_than_binary_expression() {
         let source = SourceText::new("-1 + 2");
         let mut parser = Parser::new(&source);
