@@ -3,8 +3,9 @@
 use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
-    AssignmentExpressionSyntax, BinaryExpressionSyntax, ExpressionSyntax, LiteralExpressionSyntax,
-    NameExpressionSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    AssignmentExpressionSyntax, BinaryExpressionSyntax, CallExpressionSyntax, ExpressionSyntax,
+    LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
+    UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -84,6 +85,51 @@ impl<'source> Parser<'source> {
                 self.parse_unary_expression().map(ExpressionSyntax::Unary)
             }
 
+            _ => self.parse_call_expression(),
+        }
+    }
+
+    fn parse_call_expression(&mut self) -> Option<ExpressionSyntax> {
+        let mut expression = self.parse_primary_expression()?;
+
+        while self.current_token.kind() == TokenKind::LeftParenthesis {
+            let left_parenthesis_token = self.current_token;
+            self.advance();
+
+            let mut arguments = Vec::new();
+
+            if self.current_token.kind() != TokenKind::RightParenthesis {
+                loop {
+                    arguments.push(self.parse_expression()?);
+
+                    if self.current_token.kind() != TokenKind::Comma {
+                        break;
+                    }
+
+                    self.advance();
+                }
+            }
+
+            if self.current_token.kind() != TokenKind::RightParenthesis {
+                return None;
+            }
+
+            let right_parenthesis_token = self.current_token;
+            self.advance();
+
+            expression = ExpressionSyntax::Call(CallExpressionSyntax::new(
+                expression,
+                left_parenthesis_token,
+                arguments,
+                right_parenthesis_token,
+            ));
+        }
+
+        Some(expression)
+    }
+
+    fn parse_primary_expression(&mut self) -> Option<ExpressionSyntax> {
+        match self.current_token.kind() {
             TokenKind::Number
             | TokenKind::String
             | TokenKind::TrueKeyword
@@ -719,6 +765,81 @@ mod tests {
 
         assert_eq!(unary_expression, None);
         assert_eq!(parser.current_token(), current_token);
+    }
+
+    #[test]
+    fn parser_parses_call_expression_without_arguments() {
+        let source = SourceText::new("foo()");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("call expression should parse");
+
+        let ExpressionSyntax::Call(call_expression) = expression else {
+            panic!("expected call expression");
+        };
+
+        assert!(matches!(
+            call_expression.callee(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(
+            call_expression.left_parenthesis_token().kind(),
+            TokenKind::LeftParenthesis
+        );
+        assert!(call_expression.arguments().is_empty());
+        assert_eq!(
+            call_expression.right_parenthesis_token().kind(),
+            TokenKind::RightParenthesis
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_call_expression_with_single_argument() {
+        let source = SourceText::new("foo(42)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("call expression should parse");
+
+        let ExpressionSyntax::Call(call_expression) = expression else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(call_expression.arguments().len(), 1);
+        assert!(matches!(
+            call_expression.arguments()[0],
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_call_expression_with_multiple_arguments() {
+        let source = SourceText::new("foo(1, 2)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("call expression should parse");
+
+        let ExpressionSyntax::Call(call_expression) = expression else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(call_expression.arguments().len(), 2);
+        assert!(matches!(
+            call_expression.arguments()[0],
+            ExpressionSyntax::Literal(_)
+        ));
+        assert!(matches!(
+            call_expression.arguments()[1],
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 
     #[test]
