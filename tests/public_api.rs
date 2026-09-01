@@ -3,8 +3,8 @@ use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
     AssignmentExpressionSyntax, BinaryExpressionSyntax, CallExpressionSyntax, ExpressionSyntax,
-    LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
-    UnaryExpressionSyntax,
+    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
+    ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 #[test]
@@ -154,6 +154,28 @@ fn cudrix_exposes_call_expression_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_member_access_expression_syntax() {
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
+    let dot_token = Token::new(TokenKind::Dot, SourceSpan::new(6, 1));
+    let member_name_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 6));
+
+    let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+
+    let member_access_expression =
+        MemberAccessExpressionSyntax::new(expression, dot_token, member_name_token);
+
+    assert!(matches!(
+        member_access_expression.expression(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(member_access_expression.dot_token().kind(), TokenKind::Dot);
+    assert_eq!(
+        member_access_expression.member_name_token().kind(),
+        TokenKind::Identifier
+    );
+}
+
+#[test]
 fn cudrix_exposes_parenthesized_expression_syntax() {
     let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(0, 1));
     let literal_token = Token::new(TokenKind::Number, SourceSpan::new(1, 2));
@@ -295,6 +317,28 @@ fn cudrix_parser_exposes_assignment_expression_parsing() {
         assignment.expression(),
         ExpressionSyntax::Literal(_)
     ));
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_member_access_expression_parsing() {
+    let source = SourceText::new("object.member");
+    let mut parser = Parser::new(&source);
+
+    let expression = parser.parse_expression().unwrap();
+
+    let ExpressionSyntax::MemberAccess(member_access) = expression else {
+        panic!("expected member access expression");
+    };
+
+    assert!(matches!(
+        member_access.expression(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(
+        member_access.member_name_token().kind(),
+        TokenKind::Identifier
+    );
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
 
