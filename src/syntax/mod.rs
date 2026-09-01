@@ -116,6 +116,46 @@ impl AssignmentExpressionSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallExpressionSyntax {
+    callee: Box<ExpressionSyntax>,
+    left_parenthesis_token: Token,
+    arguments: Vec<ExpressionSyntax>,
+    right_parenthesis_token: Token,
+}
+
+impl CallExpressionSyntax {
+    pub fn new(
+        callee: ExpressionSyntax,
+        left_parenthesis_token: Token,
+        arguments: Vec<ExpressionSyntax>,
+        right_parenthesis_token: Token,
+    ) -> Self {
+        Self {
+            callee: Box::new(callee),
+            left_parenthesis_token,
+            arguments,
+            right_parenthesis_token,
+        }
+    }
+
+    pub fn callee(&self) -> &ExpressionSyntax {
+        &self.callee
+    }
+
+    pub fn left_parenthesis_token(&self) -> Token {
+        self.left_parenthesis_token
+    }
+
+    pub fn arguments(&self) -> &[ExpressionSyntax] {
+        &self.arguments
+    }
+
+    pub fn right_parenthesis_token(&self) -> Token {
+        self.right_parenthesis_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParenthesizedExpressionSyntax {
     left_parenthesis_token: Token,
     expression: Box<ExpressionSyntax>,
@@ -155,6 +195,7 @@ pub enum ExpressionSyntax {
     Unary(UnaryExpressionSyntax),
     Binary(BinaryExpressionSyntax),
     Assignment(AssignmentExpressionSyntax),
+    Call(CallExpressionSyntax),
     Parenthesized(ParenthesizedExpressionSyntax),
 }
 
@@ -283,6 +324,57 @@ mod tests {
             expression,
             ExpressionSyntax::Assignment(assignment_expression)
         );
+    }
+
+    #[test]
+    fn call_expression_preserves_callee_parentheses_and_arguments() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 3));
+        let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(3, 1));
+        let argument_token = Token::new(TokenKind::Number, SourceSpan::new(4, 2));
+        let right_parenthesis_token =
+            Token::new(TokenKind::RightParenthesis, SourceSpan::new(6, 1));
+
+        let callee = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+        let argument = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(argument_token));
+
+        let call_expression = CallExpressionSyntax::new(
+            callee.clone(),
+            left_parenthesis_token,
+            vec![argument.clone()],
+            right_parenthesis_token,
+        );
+
+        assert_eq!(call_expression.callee(), &callee);
+        assert_eq!(
+            call_expression.left_parenthesis_token(),
+            left_parenthesis_token
+        );
+        assert_eq!(call_expression.arguments(), &[argument]);
+        assert_eq!(
+            call_expression.right_parenthesis_token(),
+            right_parenthesis_token
+        );
+    }
+
+    #[test]
+    fn expression_syntax_preserves_call_expression() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 3));
+        let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(3, 1));
+        let right_parenthesis_token =
+            Token::new(TokenKind::RightParenthesis, SourceSpan::new(4, 1));
+
+        let callee = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+
+        let call_expression = CallExpressionSyntax::new(
+            callee,
+            left_parenthesis_token,
+            Vec::new(),
+            right_parenthesis_token,
+        );
+
+        let expression = ExpressionSyntax::Call(call_expression.clone());
+
+        assert_eq!(expression, ExpressionSyntax::Call(call_expression));
     }
 
     #[test]
