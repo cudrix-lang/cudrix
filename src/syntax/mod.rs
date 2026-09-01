@@ -123,6 +123,35 @@ pub struct CallExpressionSyntax {
     right_parenthesis_token: Token,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MemberAccessExpressionSyntax {
+    expression: Box<ExpressionSyntax>,
+    dot_token: Token,
+    member_name_token: Token,
+}
+
+impl MemberAccessExpressionSyntax {
+    pub fn new(expression: ExpressionSyntax, dot_token: Token, member_name_token: Token) -> Self {
+        Self {
+            expression: Box::new(expression),
+            dot_token,
+            member_name_token,
+        }
+    }
+
+    pub fn expression(&self) -> &ExpressionSyntax {
+        &self.expression
+    }
+
+    pub fn dot_token(&self) -> &Token {
+        &self.dot_token
+    }
+
+    pub fn member_name_token(&self) -> &Token {
+        &self.member_name_token
+    }
+}
+
 impl CallExpressionSyntax {
     pub fn new(
         callee: ExpressionSyntax,
@@ -195,6 +224,7 @@ pub enum ExpressionSyntax {
     Unary(UnaryExpressionSyntax),
     Binary(BinaryExpressionSyntax),
     Assignment(AssignmentExpressionSyntax),
+    MemberAccess(MemberAccessExpressionSyntax),
     Call(CallExpressionSyntax),
     Parenthesized(ParenthesizedExpressionSyntax),
 }
@@ -323,6 +353,48 @@ mod tests {
         assert_eq!(
             expression,
             ExpressionSyntax::Assignment(assignment_expression)
+        );
+    }
+
+    #[test]
+    fn member_access_expression_preserves_expression_dot_and_member_name() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
+        let dot_token = Token::new(TokenKind::Dot, SourceSpan::new(6, 1));
+        let member_name_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 6));
+
+        let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+
+        let member_access_expression =
+            MemberAccessExpressionSyntax::new(expression, dot_token, member_name_token);
+
+        assert_eq!(
+            member_access_expression.expression(),
+            &ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token))
+        );
+        assert_eq!(member_access_expression.dot_token(), &dot_token);
+        assert_eq!(
+            member_access_expression.member_name_token(),
+            &member_name_token
+        );
+    }
+
+    #[test]
+    fn expression_syntax_preserves_member_access_expression() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
+        let dot_token = Token::new(TokenKind::Dot, SourceSpan::new(6, 1));
+        let member_name_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 6));
+
+        let member_access_expression = MemberAccessExpressionSyntax::new(
+            ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token)),
+            dot_token,
+            member_name_token,
+        );
+
+        let expression = ExpressionSyntax::MemberAccess(member_access_expression.clone());
+
+        assert_eq!(
+            expression,
+            ExpressionSyntax::MemberAccess(member_access_expression)
         );
     }
 
