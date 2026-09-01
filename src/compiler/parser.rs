@@ -843,6 +843,205 @@ mod tests {
     }
 
     #[test]
+    fn parser_call_expression_accepts_expression_argument() {
+        let source = SourceText::new("foo(x + 1)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("call expression should parse");
+
+        let ExpressionSyntax::Call(call_expression) = expression else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(call_expression.arguments().len(), 1);
+        assert!(matches!(
+            call_expression.arguments()[0],
+            ExpressionSyntax::Binary(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_call_expression_accepts_assignment_argument() {
+        let source = SourceText::new("foo(x = 1)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("call expression should parse");
+
+        let ExpressionSyntax::Call(call_expression) = expression else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(call_expression.arguments().len(), 1);
+        assert!(matches!(
+            call_expression.arguments()[0],
+            ExpressionSyntax::Assignment(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_call_expression_supports_parenthesized_callee() {
+        let source = SourceText::new("(foo)(42)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("parenthesized call expression should parse");
+
+        let ExpressionSyntax::Call(call_expression) = expression else {
+            panic!("expected call expression");
+        };
+
+        assert!(matches!(
+            call_expression.callee(),
+            ExpressionSyntax::Parenthesized(_)
+        ));
+        assert_eq!(call_expression.arguments().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_call_expression_supports_chained_calls() {
+        let source = SourceText::new("foo()(42)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("chained call expression should parse");
+
+        let ExpressionSyntax::Call(outer_call) = expression else {
+            panic!("expected outer call expression");
+        };
+
+        assert!(matches!(outer_call.callee(), ExpressionSyntax::Call(_)));
+        assert_eq!(outer_call.arguments().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_call_expression_binds_tighter_than_unary_expression() {
+        let source = SourceText::new("-foo()");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("unary call expression should parse");
+
+        let ExpressionSyntax::Unary(unary_expression) = expression else {
+            panic!("expected unary expression");
+        };
+
+        assert_eq!(unary_expression.operator_token().kind(), TokenKind::Minus);
+        assert!(matches!(
+            unary_expression.operand(),
+            ExpressionSyntax::Call(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_call_expression_binds_tighter_than_binary_expression() {
+        let source = SourceText::new("foo() + 1");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("binary expression containing call should parse");
+
+        let ExpressionSyntax::Binary(binary_expression) = expression else {
+            panic!("expected binary expression");
+        };
+
+        assert_eq!(binary_expression.operator_token().kind(), TokenKind::Plus);
+        assert!(matches!(
+            binary_expression.left(),
+            ExpressionSyntax::Call(_)
+        ));
+        assert!(matches!(
+            binary_expression.right(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_assignment_expression_accepts_call_expression_on_right() {
+        let source = SourceText::new("result = foo()");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("assignment expression containing call should parse");
+
+        let ExpressionSyntax::Assignment(assignment_expression) = expression else {
+            panic!("expected assignment expression");
+        };
+
+        assert!(matches!(
+            assignment_expression.expression(),
+            ExpressionSyntax::Call(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_call_expression_skips_trivia_between_callee_and_parenthesis() {
+        let source = SourceText::new("foo /* comment */ (42)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("call expression separated by trivia should parse");
+
+        assert!(matches!(expression, ExpressionSyntax::Call(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_call_expression_skips_trivia_between_arguments() {
+        let source = SourceText::new("foo(1, /* comment */ 2)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("call expression containing trivia should parse");
+
+        let ExpressionSyntax::Call(call_expression) = expression else {
+            panic!("expected call expression");
+        };
+
+        assert_eq!(call_expression.arguments().len(), 2);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_call_expression_returns_none_without_right_parenthesis() {
+        let source = SourceText::new("foo(42");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_call_expression_returns_none_without_argument_after_comma() {
+        let source = SourceText::new("foo(1,)");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::RightParenthesis);
+    }
+
+    #[test]
     fn parser_parses_binary_literal_expression() {
         let source = SourceText::new("1 + 2");
         let mut parser = Parser::new(&source);
