@@ -4,8 +4,8 @@ use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
     AssignmentExpressionSyntax, BinaryExpressionSyntax, CallExpressionSyntax, ExpressionSyntax,
-    LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
-    UnaryExpressionSyntax,
+    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
+    ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -85,44 +85,68 @@ impl<'source> Parser<'source> {
                 self.parse_unary_expression().map(ExpressionSyntax::Unary)
             }
 
-            _ => self.parse_call_expression(),
+            _ => self.parse_postfix_expression(),
         }
     }
 
-    fn parse_call_expression(&mut self) -> Option<ExpressionSyntax> {
+    fn parse_postfix_expression(&mut self) -> Option<ExpressionSyntax> {
         let mut expression = self.parse_primary_expression()?;
 
-        while self.current_token.kind() == TokenKind::LeftParenthesis {
-            let left_parenthesis_token = self.current_token;
-            self.advance();
+        loop {
+            match self.current_token.kind() {
+                TokenKind::LeftParenthesis => {
+                    let left_parenthesis_token = self.current_token;
+                    self.advance();
 
-            let mut arguments = Vec::new();
+                    let mut arguments = Vec::new();
 
-            if self.current_token.kind() != TokenKind::RightParenthesis {
-                loop {
-                    arguments.push(self.parse_expression()?);
+                    if self.current_token.kind() != TokenKind::RightParenthesis {
+                        loop {
+                            arguments.push(self.parse_expression()?);
 
-                    if self.current_token.kind() != TokenKind::Comma {
-                        break;
+                            if self.current_token.kind() != TokenKind::Comma {
+                                break;
+                            }
+
+                            self.advance();
+                        }
                     }
 
+                    if self.current_token.kind() != TokenKind::RightParenthesis {
+                        return None;
+                    }
+
+                    let right_parenthesis_token = self.current_token;
                     self.advance();
+
+                    expression = ExpressionSyntax::Call(CallExpressionSyntax::new(
+                        expression,
+                        left_parenthesis_token,
+                        arguments,
+                        right_parenthesis_token,
+                    ));
                 }
+
+                TokenKind::Dot => {
+                    let dot_token = self.current_token;
+                    self.advance();
+
+                    if self.current_token.kind() != TokenKind::Identifier {
+                        return None;
+                    }
+
+                    let member_name_token = self.current_token;
+                    self.advance();
+
+                    expression = ExpressionSyntax::MemberAccess(MemberAccessExpressionSyntax::new(
+                        expression,
+                        dot_token,
+                        member_name_token,
+                    ));
+                }
+
+                _ => break,
             }
-
-            if self.current_token.kind() != TokenKind::RightParenthesis {
-                return None;
-            }
-
-            let right_parenthesis_token = self.current_token;
-            self.advance();
-
-            expression = ExpressionSyntax::Call(CallExpressionSyntax::new(
-                expression,
-                left_parenthesis_token,
-                arguments,
-                right_parenthesis_token,
-            ));
         }
 
         Some(expression)
@@ -1039,6 +1063,201 @@ mod tests {
 
         assert_eq!(expression, None);
         assert_eq!(parser.current_token().kind(), TokenKind::RightParenthesis);
+    }
+
+    #[test]
+    fn parser_parses_member_access_expression() {
+        let source = SourceText::new("object.member");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::MemberAccess(member_access) = expression else {
+            panic!("expected member access expression");
+        };
+
+        assert!(matches!(
+            member_access.expression(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(member_access.dot_token().kind(), TokenKind::Dot);
+        assert_eq!(
+            member_access.member_name_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_expression_supports_chaining() {
+        let source = SourceText::new("object.member.child");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::MemberAccess(outer_member_access) = expression else {
+            panic!("expected outer member access expression");
+        };
+
+        assert!(matches!(
+            outer_member_access.expression(),
+            ExpressionSyntax::MemberAccess(_)
+        ));
+        assert_eq!(
+            outer_member_access.member_name_token().span(),
+            SourceSpan::new(14, 5)
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_expression_supports_member_after_call() {
+        let source = SourceText::new("foo().member");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::MemberAccess(member_access) = expression else {
+            panic!("expected member access expression");
+        };
+
+        assert!(matches!(
+            member_access.expression(),
+            ExpressionSyntax::Call(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_expression_supports_call_after_member() {
+        let source = SourceText::new("object.method()");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Call(call) = expression else {
+            panic!("expected call expression");
+        };
+
+        assert!(matches!(call.callee(), ExpressionSyntax::MemberAccess(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_and_call_expressions_compose_left_to_right() {
+        let source = SourceText::new("foo().bar()");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Call(call) = expression else {
+            panic!("expected outer call expression");
+        };
+
+        let ExpressionSyntax::MemberAccess(member_access) = call.callee() else {
+            panic!("expected member access callee");
+        };
+
+        assert!(matches!(
+            member_access.expression(),
+            ExpressionSyntax::Call(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_expression_supports_parenthesized_expression() {
+        let source = SourceText::new("(object).member");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::MemberAccess(member_access) = expression else {
+            panic!("expected member access expression");
+        };
+
+        assert!(matches!(
+            member_access.expression(),
+            ExpressionSyntax::Parenthesized(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_expression_binds_tighter_than_unary_expression() {
+        let source = SourceText::new("-object.member");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Unary(unary) = expression else {
+            panic!("expected unary expression");
+        };
+
+        assert!(matches!(unary.operand(), ExpressionSyntax::MemberAccess(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_expression_binds_tighter_than_binary_expression() {
+        let source = SourceText::new("object.member + 1");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Binary(binary) = expression else {
+            panic!("expected binary expression");
+        };
+
+        assert!(matches!(binary.left(), ExpressionSyntax::MemberAccess(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_assignment_expression_accepts_member_access_expression_on_right() {
+        let source = SourceText::new("result = object.member");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Assignment(assignment) = expression else {
+            panic!("expected assignment expression");
+        };
+
+        assert!(matches!(
+            assignment.expression(),
+            ExpressionSyntax::MemberAccess(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_expression_skips_trivia_around_dot() {
+        let source = SourceText::new("object /* comment */ . /* comment */ member");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        assert!(matches!(expression, ExpressionSyntax::MemberAccess(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_expression_returns_none_without_member_name() {
+        let source = SourceText::new("object.");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_expression().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_member_access_expression_returns_none_for_non_identifier_member_name() {
+        let source = SourceText::new("object.42");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_expression().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Number);
     }
 
     #[test]
