@@ -2,8 +2,9 @@ use cudrix::LANGUAGE_NAME;
 use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
-    AssignmentExpressionSyntax, BinaryExpressionSyntax, ExpressionSyntax, LiteralExpressionSyntax,
-    NameExpressionSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    AssignmentExpressionSyntax, BinaryExpressionSyntax, CallExpressionSyntax, ExpressionSyntax,
+    LiteralExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
+    UnaryExpressionSyntax,
 };
 
 #[test]
@@ -117,6 +118,39 @@ fn cudrix_exposes_assignment_expression_syntax() {
         assignment_expression.expression(),
         ExpressionSyntax::Literal(_)
     ));
+}
+
+#[test]
+fn cudrix_exposes_call_expression_syntax() {
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 3));
+    let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(3, 1));
+    let argument_token = Token::new(TokenKind::Number, SourceSpan::new(4, 2));
+    let right_parenthesis_token = Token::new(TokenKind::RightParenthesis, SourceSpan::new(6, 1));
+
+    let callee = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+    let argument = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(argument_token));
+
+    let call_expression = CallExpressionSyntax::new(
+        callee.clone(),
+        left_parenthesis_token,
+        vec![argument.clone()],
+        right_parenthesis_token,
+    );
+
+    assert_eq!(call_expression.callee(), &callee);
+    assert_eq!(
+        call_expression.left_parenthesis_token(),
+        left_parenthesis_token
+    );
+    assert_eq!(call_expression.arguments(), &[argument]);
+    assert_eq!(
+        call_expression.right_parenthesis_token(),
+        right_parenthesis_token
+    );
+
+    let expression = ExpressionSyntax::Call(call_expression.clone());
+
+    assert_eq!(expression, ExpressionSyntax::Call(call_expression));
 }
 
 #[test]
@@ -312,5 +346,22 @@ fn cudrix_parser_exposes_expression_parsing() {
         name_expression.identifier_token().span(),
         SourceSpan::new(0, 6)
     );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_call_expression_parsing() {
+    let source = SourceText::new("foo(1, 2)");
+    let mut parser = Parser::new(&source);
+
+    let expression = parser
+        .parse_expression()
+        .expect("call expression should parse through the public parser API");
+
+    let ExpressionSyntax::Call(call_expression) = expression else {
+        panic!("expected call expression");
+    };
+
+    assert_eq!(call_expression.arguments().len(), 2);
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
