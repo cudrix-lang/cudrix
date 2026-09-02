@@ -3,8 +3,8 @@ use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
     AssignmentExpressionSyntax, BinaryExpressionSyntax, CallExpressionSyntax, ExpressionSyntax,
-    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
-    ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
+    NameExpressionSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 #[test]
@@ -173,6 +173,66 @@ fn cudrix_exposes_member_access_expression_syntax() {
         member_access_expression.member_name_token().kind(),
         TokenKind::Identifier
     );
+}
+
+#[test]
+fn cudrix_exposes_index_expression_syntax() {
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 5));
+    let left_bracket_token = Token::new(TokenKind::LeftBracket, SourceSpan::new(5, 1));
+    let index_token = Token::new(TokenKind::Number, SourceSpan::new(6, 1));
+    let right_bracket_token = Token::new(TokenKind::RightBracket, SourceSpan::new(7, 1));
+
+    let index_expression = IndexExpressionSyntax::new(
+        ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token)),
+        left_bracket_token,
+        ExpressionSyntax::Literal(LiteralExpressionSyntax::new(index_token)),
+        right_bracket_token,
+    );
+
+    assert!(matches!(
+        index_expression.expression(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(
+        index_expression.left_bracket_token().kind(),
+        TokenKind::LeftBracket
+    );
+    assert!(matches!(
+        index_expression.index(),
+        ExpressionSyntax::Literal(_)
+    ));
+    assert_eq!(
+        index_expression.right_bracket_token().kind(),
+        TokenKind::RightBracket
+    );
+
+    let expression = ExpressionSyntax::Index(index_expression.clone());
+
+    assert_eq!(expression, ExpressionSyntax::Index(index_expression));
+}
+
+#[test]
+fn cudrix_parser_exposes_index_expression_parsing() {
+    let source = SourceText::new("items[0]");
+    let mut parser = Parser::new(&source);
+
+    let expression = parser
+        .parse_expression()
+        .expect("index expression should parse through the public parser API");
+
+    let ExpressionSyntax::Index(index_expression) = expression else {
+        panic!("expected index expression");
+    };
+
+    assert!(matches!(
+        index_expression.expression(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert!(matches!(
+        index_expression.index(),
+        ExpressionSyntax::Literal(_)
+    ));
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
 
 #[test]
