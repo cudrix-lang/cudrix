@@ -3,9 +3,10 @@
 use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
-    AssignmentExpressionSyntax, BinaryExpressionSyntax, CallExpressionSyntax, ExpressionSyntax,
-    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    NameExpressionSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
+    CallExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    MemberAccessExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
+    UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -188,8 +189,48 @@ impl<'source> Parser<'source> {
                 .parse_parenthesized_expression()
                 .map(ExpressionSyntax::Parenthesized),
 
+            TokenKind::LeftBracket => self
+                .parse_array_literal_expression()
+                .map(ExpressionSyntax::ArrayLiteral),
+
             _ => None,
         }
+    }
+
+    fn parse_array_literal_expression(&mut self) -> Option<ArrayLiteralExpressionSyntax> {
+        if self.current_token.kind() != TokenKind::LeftBracket {
+            return None;
+        }
+
+        let left_bracket_token = self.current_token;
+        self.advance();
+
+        let mut elements = Vec::new();
+
+        if self.current_token.kind() != TokenKind::RightBracket {
+            loop {
+                elements.push(self.parse_expression()?);
+
+                if self.current_token.kind() != TokenKind::Comma {
+                    break;
+                }
+
+                self.advance();
+            }
+        }
+
+        if self.current_token.kind() != TokenKind::RightBracket {
+            return None;
+        }
+
+        let right_bracket_token = self.current_token;
+        self.advance();
+
+        Some(ArrayLiteralExpressionSyntax::new(
+            left_bracket_token,
+            elements,
+            right_bracket_token,
+        ))
     }
 
     fn binary_operator_precedence(kind: TokenKind) -> u8 {
@@ -1311,6 +1352,219 @@ mod tests {
             TokenKind::RightBracket
         );
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_empty_array_literal_expression() {
+        let source = SourceText::new("[]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("empty array literal should parse");
+
+        let ExpressionSyntax::ArrayLiteral(array_literal) = expression else {
+            panic!("expected array literal expression");
+        };
+
+        assert_eq!(
+            array_literal.left_bracket_token().kind(),
+            TokenKind::LeftBracket
+        );
+        assert!(array_literal.elements().is_empty());
+        assert_eq!(
+            array_literal.right_bracket_token().kind(),
+            TokenKind::RightBracket
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_array_literal_expression_with_multiple_elements() {
+        let source = SourceText::new("[1, 2, 3]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("array literal should parse");
+
+        let ExpressionSyntax::ArrayLiteral(array_literal) = expression else {
+            panic!("expected array literal expression");
+        };
+
+        assert_eq!(array_literal.elements().len(), 3);
+        assert!(
+            array_literal
+                .elements()
+                .iter()
+                .all(|element| matches!(element, ExpressionSyntax::Literal(_)))
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_array_literal_expression_accepts_expression_elements() {
+        let source = SourceText::new("[a + b, foo()]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::ArrayLiteral(array_literal) = expression else {
+            panic!("expected array literal expression");
+        };
+
+        assert_eq!(array_literal.elements().len(), 2);
+        assert!(matches!(
+            array_literal.elements()[0],
+            ExpressionSyntax::Binary(_)
+        ));
+        assert!(matches!(
+            array_literal.elements()[1],
+            ExpressionSyntax::Call(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_array_literal_expression_supports_nesting() {
+        let source = SourceText::new("[[1, 2], [3, 4]]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::ArrayLiteral(array_literal) = expression else {
+            panic!("expected outer array literal expression");
+        };
+
+        assert_eq!(array_literal.elements().len(), 2);
+        assert!(
+            array_literal
+                .elements()
+                .iter()
+                .all(|element| matches!(element, ExpressionSyntax::ArrayLiteral(_)))
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_array_literal_expression_supports_index_postfix() {
+        let source = SourceText::new("[1, 2][0]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Index(index_expression) = expression else {
+            panic!("expected index expression");
+        };
+
+        assert!(matches!(
+            index_expression.expression(),
+            ExpressionSyntax::ArrayLiteral(_)
+        ));
+        assert!(matches!(
+            index_expression.index(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_assignment_expression_accepts_array_literal_on_right() {
+        let source = SourceText::new("value = [1, 2]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Assignment(assignment_expression) = expression else {
+            panic!("expected assignment expression");
+        };
+
+        assert!(matches!(
+            assignment_expression.expression(),
+            ExpressionSyntax::ArrayLiteral(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_array_literal_expression_participates_in_binary_expression() {
+        let source = SourceText::new("[1, 2] + other");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Binary(binary_expression) = expression else {
+            panic!("expected binary expression");
+        };
+
+        assert!(matches!(
+            binary_expression.left(),
+            ExpressionSyntax::ArrayLiteral(_)
+        ));
+        assert!(matches!(
+            binary_expression.right(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_array_literal_expression_skips_trivia() {
+        let source = SourceText::new("[ /* comment */ 1, /* comment */ 2 /* comment */ ]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::ArrayLiteral(array_literal) = expression else {
+            panic!("expected array literal expression");
+        };
+
+        assert_eq!(array_literal.elements().len(), 2);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_array_literal_expression_returns_none_without_element_after_comma() {
+        let source = SourceText::new("[1,]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::RightBracket);
+    }
+
+    #[test]
+    fn parser_array_literal_expression_returns_none_without_right_bracket() {
+        let source = SourceText::new("[1");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_array_literal_expression_returns_none_for_missing_first_element() {
+        let source = SourceText::new("[,]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Comma);
+    }
+
+    #[test]
+    fn parser_array_literal_expression_returns_none_for_consecutive_commas() {
+        let source = SourceText::new("[1,,2]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Comma);
     }
 
     #[test]
