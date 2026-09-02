@@ -4,8 +4,8 @@ use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
     AssignmentExpressionSyntax, BinaryExpressionSyntax, CallExpressionSyntax, ExpressionSyntax,
-    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
-    ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
+    NameExpressionSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -142,6 +142,27 @@ impl<'source> Parser<'source> {
                         expression,
                         dot_token,
                         member_name_token,
+                    ));
+                }
+
+                TokenKind::LeftBracket => {
+                    let left_bracket_token = self.current_token;
+                    self.advance();
+
+                    let index = self.parse_expression()?;
+
+                    if self.current_token.kind() != TokenKind::RightBracket {
+                        return None;
+                    }
+
+                    let right_bracket_token = self.current_token;
+                    self.advance();
+
+                    expression = ExpressionSyntax::Index(IndexExpressionSyntax::new(
+                        expression,
+                        left_bracket_token,
+                        index,
+                        right_bracket_token,
                     ));
                 }
 
@@ -1258,6 +1279,294 @@ mod tests {
 
         assert!(parser.parse_expression().is_none());
         assert_eq!(parser.current_token().kind(), TokenKind::Number);
+    }
+
+    #[test]
+    fn parser_parses_index_expression() {
+        let source = SourceText::new("items[0]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("index expression should parse");
+
+        let ExpressionSyntax::Index(index_expression) = expression else {
+            panic!("expected index expression");
+        };
+
+        assert!(matches!(
+            index_expression.expression(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(
+            index_expression.left_bracket_token().kind(),
+            TokenKind::LeftBracket
+        );
+        assert!(matches!(
+            index_expression.index(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(
+            index_expression.right_bracket_token().kind(),
+            TokenKind::RightBracket
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_accepts_name_index() {
+        let source = SourceText::new("items[index]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Index(index_expression) = expression else {
+            panic!("expected index expression");
+        };
+
+        assert!(matches!(
+            index_expression.index(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_supports_chaining() {
+        let source = SourceText::new("matrix[row][column]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Index(outer_index) = expression else {
+            panic!("expected outer index expression");
+        };
+
+        assert!(matches!(
+            outer_index.expression(),
+            ExpressionSyntax::Index(_)
+        ));
+        assert!(matches!(outer_index.index(), ExpressionSyntax::Name(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_supports_index_after_member_access() {
+        let source = SourceText::new("object.items[0]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Index(index_expression) = expression else {
+            panic!("expected index expression");
+        };
+
+        assert!(matches!(
+            index_expression.expression(),
+            ExpressionSyntax::MemberAccess(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_supports_index_after_call() {
+        let source = SourceText::new("foo()[index]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Index(index_expression) = expression else {
+            panic!("expected index expression");
+        };
+
+        assert!(matches!(
+            index_expression.expression(),
+            ExpressionSyntax::Call(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_supports_member_access_after_index() {
+        let source = SourceText::new("items[0].member");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::MemberAccess(member_access) = expression else {
+            panic!("expected member access expression");
+        };
+
+        assert!(matches!(
+            member_access.expression(),
+            ExpressionSyntax::Index(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_supports_call_after_index() {
+        let source = SourceText::new("items[0]()");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Call(call_expression) = expression else {
+            panic!("expected call expression");
+        };
+
+        assert!(matches!(
+            call_expression.callee(),
+            ExpressionSyntax::Index(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_accepts_binary_expression_index() {
+        let source = SourceText::new("items[a + b]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Index(index_expression) = expression else {
+            panic!("expected index expression");
+        };
+
+        assert!(matches!(
+            index_expression.index(),
+            ExpressionSyntax::Binary(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_accepts_assignment_expression_index() {
+        let source = SourceText::new("items[x = y]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Index(index_expression) = expression else {
+            panic!("expected index expression");
+        };
+
+        assert!(matches!(
+            index_expression.index(),
+            ExpressionSyntax::Assignment(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_binds_tighter_than_unary_expression() {
+        let source = SourceText::new("-items[0]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Unary(unary_expression) = expression else {
+            panic!("expected unary expression");
+        };
+
+        assert!(matches!(
+            unary_expression.operand(),
+            ExpressionSyntax::Index(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_binds_tighter_than_binary_expression() {
+        let source = SourceText::new("items[0] + 1");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Binary(binary_expression) = expression else {
+            panic!("expected binary expression");
+        };
+
+        assert!(matches!(
+            binary_expression.left(),
+            ExpressionSyntax::Index(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_assignment_expression_accepts_index_expression_on_right() {
+        let source = SourceText::new("value = items[0]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Assignment(assignment_expression) = expression else {
+            panic!("expected assignment expression");
+        };
+
+        assert!(matches!(
+            assignment_expression.expression(),
+            ExpressionSyntax::Index(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_does_not_become_assignment_target() {
+        let source = SourceText::new("items[0] = value");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("left index should parse as expression");
+
+        assert!(matches!(expression, ExpressionSyntax::Index(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::Assignment);
+    }
+
+    #[test]
+    fn parser_index_expression_skips_trivia_inside_brackets() {
+        let source = SourceText::new("items /* comment */ [ /* comment */ 0 /* comment */ ]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        assert!(matches!(expression, ExpressionSyntax::Index(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_returns_none_without_index() {
+        let source = SourceText::new("items[]");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::RightBracket);
+    }
+
+    #[test]
+    fn parser_index_expression_returns_none_without_index_at_end_of_file() {
+        let source = SourceText::new("items[");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_index_expression_returns_none_without_right_bracket() {
+        let source = SourceText::new("items[0");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 
     #[test]
