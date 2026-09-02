@@ -192,6 +192,39 @@ impl IndexExpressionSyntax {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArrayLiteralExpressionSyntax {
+    left_bracket_token: Token,
+    elements: Vec<ExpressionSyntax>,
+    right_bracket_token: Token,
+}
+
+impl ArrayLiteralExpressionSyntax {
+    pub fn new(
+        left_bracket_token: Token,
+        elements: Vec<ExpressionSyntax>,
+        right_bracket_token: Token,
+    ) -> Self {
+        Self {
+            left_bracket_token,
+            elements,
+            right_bracket_token,
+        }
+    }
+
+    pub fn left_bracket_token(&self) -> Token {
+        self.left_bracket_token
+    }
+
+    pub fn elements(&self) -> &[ExpressionSyntax] {
+        &self.elements
+    }
+
+    pub fn right_bracket_token(&self) -> Token {
+        self.right_bracket_token
+    }
+}
+
 impl CallExpressionSyntax {
     pub fn new(
         callee: ExpressionSyntax,
@@ -266,6 +299,7 @@ pub enum ExpressionSyntax {
     Assignment(AssignmentExpressionSyntax),
     MemberAccess(MemberAccessExpressionSyntax),
     Index(IndexExpressionSyntax),
+    ArrayLiteral(ArrayLiteralExpressionSyntax),
     Call(CallExpressionSyntax),
     Parenthesized(ParenthesizedExpressionSyntax),
 }
@@ -479,6 +513,60 @@ mod tests {
         let expression = ExpressionSyntax::Index(index_expression.clone());
 
         assert_eq!(expression, ExpressionSyntax::Index(index_expression));
+    }
+
+    #[test]
+    fn array_literal_expression_preserves_brackets_and_elements() {
+        let left_bracket_token = Token::new(TokenKind::LeftBracket, SourceSpan::new(0, 1));
+        let first_element_token = Token::new(TokenKind::Number, SourceSpan::new(1, 1));
+        let second_element_token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 1));
+        let right_bracket_token = Token::new(TokenKind::RightBracket, SourceSpan::new(5, 1));
+
+        let first_element =
+            ExpressionSyntax::Literal(LiteralExpressionSyntax::new(first_element_token));
+        let second_element =
+            ExpressionSyntax::Name(NameExpressionSyntax::new(second_element_token));
+
+        let array_literal_expression = ArrayLiteralExpressionSyntax::new(
+            left_bracket_token,
+            vec![first_element.clone(), second_element.clone()],
+            right_bracket_token,
+        );
+
+        assert_eq!(
+            array_literal_expression.left_bracket_token(),
+            left_bracket_token
+        );
+        assert_eq!(
+            array_literal_expression.elements(),
+            &[first_element, second_element]
+        );
+        assert_eq!(
+            array_literal_expression.right_bracket_token(),
+            right_bracket_token
+        );
+    }
+
+    #[test]
+    fn expression_syntax_preserves_array_literal_expression() {
+        let left_bracket_token = Token::new(TokenKind::LeftBracket, SourceSpan::new(0, 1));
+        let element_token = Token::new(TokenKind::Number, SourceSpan::new(1, 1));
+        let right_bracket_token = Token::new(TokenKind::RightBracket, SourceSpan::new(2, 1));
+
+        let array_literal_expression = ArrayLiteralExpressionSyntax::new(
+            left_bracket_token,
+            vec![ExpressionSyntax::Literal(LiteralExpressionSyntax::new(
+                element_token,
+            ))],
+            right_bracket_token,
+        );
+
+        let expression = ExpressionSyntax::ArrayLiteral(array_literal_expression.clone());
+
+        assert_eq!(
+            expression,
+            ExpressionSyntax::ArrayLiteral(array_literal_expression)
+        );
     }
 
     #[test]
