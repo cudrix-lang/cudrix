@@ -2,9 +2,10 @@ use cudrix::LANGUAGE_NAME;
 use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
-    AssignmentExpressionSyntax, BinaryExpressionSyntax, CallExpressionSyntax, ExpressionSyntax,
-    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    NameExpressionSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
+    CallExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    MemberAccessExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
+    UnaryExpressionSyntax,
 };
 
 #[test]
@@ -233,6 +234,31 @@ fn cudrix_parser_exposes_index_expression_parsing() {
         ExpressionSyntax::Literal(_)
     ));
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_exposes_array_literal_expression_syntax() {
+    let left_bracket_token = Token::new(TokenKind::LeftBracket, SourceSpan::new(0, 1));
+    let element_token = Token::new(TokenKind::Number, SourceSpan::new(1, 1));
+    let right_bracket_token = Token::new(TokenKind::RightBracket, SourceSpan::new(2, 1));
+
+    let element = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(element_token));
+
+    let array_literal_expression = ArrayLiteralExpressionSyntax::new(
+        left_bracket_token,
+        vec![element.clone()],
+        right_bracket_token,
+    );
+
+    assert_eq!(
+        array_literal_expression.left_bracket_token(),
+        left_bracket_token
+    );
+    assert_eq!(array_literal_expression.elements(), &[element]);
+    assert_eq!(
+        array_literal_expression.right_bracket_token(),
+        right_bracket_token
+    );
 }
 
 #[test]
@@ -467,5 +493,22 @@ fn cudrix_parser_exposes_call_expression_parsing() {
     };
 
     assert_eq!(call_expression.arguments().len(), 2);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_array_literal_expression_parsing() {
+    let source = SourceText::new("[1, 2]");
+    let mut parser = Parser::new(&source);
+
+    let expression = parser
+        .parse_expression()
+        .expect("array literal expression should parse");
+
+    let ExpressionSyntax::ArrayLiteral(array_literal_expression) = expression else {
+        panic!("expected array literal expression");
+    };
+
+    assert_eq!(array_literal_expression.elements().len(), 2);
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
