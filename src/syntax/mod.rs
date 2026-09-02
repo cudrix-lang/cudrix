@@ -152,6 +152,46 @@ impl MemberAccessExpressionSyntax {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IndexExpressionSyntax {
+    expression: Box<ExpressionSyntax>,
+    left_bracket_token: Token,
+    index: Box<ExpressionSyntax>,
+    right_bracket_token: Token,
+}
+
+impl IndexExpressionSyntax {
+    pub fn new(
+        expression: ExpressionSyntax,
+        left_bracket_token: Token,
+        index: ExpressionSyntax,
+        right_bracket_token: Token,
+    ) -> Self {
+        Self {
+            expression: Box::new(expression),
+            left_bracket_token,
+            index: Box::new(index),
+            right_bracket_token,
+        }
+    }
+
+    pub fn expression(&self) -> &ExpressionSyntax {
+        &self.expression
+    }
+
+    pub fn left_bracket_token(&self) -> Token {
+        self.left_bracket_token
+    }
+
+    pub fn index(&self) -> &ExpressionSyntax {
+        &self.index
+    }
+
+    pub fn right_bracket_token(&self) -> Token {
+        self.right_bracket_token
+    }
+}
+
 impl CallExpressionSyntax {
     pub fn new(
         callee: ExpressionSyntax,
@@ -225,6 +265,7 @@ pub enum ExpressionSyntax {
     Binary(BinaryExpressionSyntax),
     Assignment(AssignmentExpressionSyntax),
     MemberAccess(MemberAccessExpressionSyntax),
+    Index(IndexExpressionSyntax),
     Call(CallExpressionSyntax),
     Parenthesized(ParenthesizedExpressionSyntax),
 }
@@ -396,6 +437,48 @@ mod tests {
             expression,
             ExpressionSyntax::MemberAccess(member_access_expression)
         );
+    }
+
+    #[test]
+    fn index_expression_preserves_expression_brackets_and_index() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 5));
+        let left_bracket_token = Token::new(TokenKind::LeftBracket, SourceSpan::new(5, 1));
+        let index_token = Token::new(TokenKind::Number, SourceSpan::new(6, 1));
+        let right_bracket_token = Token::new(TokenKind::RightBracket, SourceSpan::new(7, 1));
+
+        let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+        let index = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(index_token));
+
+        let index_expression = IndexExpressionSyntax::new(
+            expression.clone(),
+            left_bracket_token,
+            index.clone(),
+            right_bracket_token,
+        );
+
+        assert_eq!(index_expression.expression(), &expression);
+        assert_eq!(index_expression.left_bracket_token(), left_bracket_token);
+        assert_eq!(index_expression.index(), &index);
+        assert_eq!(index_expression.right_bracket_token(), right_bracket_token);
+    }
+
+    #[test]
+    fn expression_syntax_preserves_index_expression() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 5));
+        let left_bracket_token = Token::new(TokenKind::LeftBracket, SourceSpan::new(5, 1));
+        let index_token = Token::new(TokenKind::Number, SourceSpan::new(6, 1));
+        let right_bracket_token = Token::new(TokenKind::RightBracket, SourceSpan::new(7, 1));
+
+        let index_expression = IndexExpressionSyntax::new(
+            ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token)),
+            left_bracket_token,
+            ExpressionSyntax::Literal(LiteralExpressionSyntax::new(index_token)),
+            right_bracket_token,
+        );
+
+        let expression = ExpressionSyntax::Index(index_expression.clone());
+
+        assert_eq!(expression, ExpressionSyntax::Index(index_expression));
     }
 
     #[test]
