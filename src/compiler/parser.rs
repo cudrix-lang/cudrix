@@ -5,8 +5,8 @@ use crate::source::SourceText;
 use crate::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
     CallExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
-    MemberAccessExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
-    UnaryExpressionSyntax,
+    MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
+    ObjectMemberSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -193,6 +193,10 @@ impl<'source> Parser<'source> {
                 .parse_array_literal_expression()
                 .map(ExpressionSyntax::ArrayLiteral),
 
+            TokenKind::LeftBrace => self
+                .parse_object_literal_expression()
+                .map(ExpressionSyntax::ObjectLiteral),
+
             _ => None,
         }
     }
@@ -230,6 +234,58 @@ impl<'source> Parser<'source> {
             left_bracket_token,
             elements,
             right_bracket_token,
+        ))
+    }
+
+    fn parse_object_literal_expression(&mut self) -> Option<ObjectLiteralExpressionSyntax> {
+        if self.current_token.kind() != TokenKind::LeftBrace {
+            return None;
+        }
+
+        let left_brace_token = self.current_token;
+        self.advance();
+
+        let mut members = Vec::new();
+
+        if self.current_token.kind() != TokenKind::RightBrace {
+            loop {
+                if self.current_token.kind() != TokenKind::Identifier {
+                    return None;
+                }
+
+                let name_token = self.current_token;
+                self.advance();
+
+                if self.current_token.kind() != TokenKind::Colon {
+                    return None;
+                }
+
+                let colon_token = self.current_token;
+                self.advance();
+
+                let value = self.parse_expression()?;
+
+                members.push(ObjectMemberSyntax::new(name_token, colon_token, value));
+
+                if self.current_token.kind() != TokenKind::Comma {
+                    break;
+                }
+
+                self.advance();
+            }
+        }
+
+        if self.current_token.kind() != TokenKind::RightBrace {
+            return None;
+        }
+
+        let right_brace_token = self.current_token;
+        self.advance();
+
+        Some(ObjectLiteralExpressionSyntax::new(
+            left_brace_token,
+            members,
+            right_brace_token,
         ))
     }
 
@@ -1377,6 +1433,193 @@ mod tests {
             TokenKind::RightBracket
         );
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_empty_object_literal_expression() {
+        let source = SourceText::new("{}");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("empty object literal should parse");
+
+        let ExpressionSyntax::ObjectLiteral(object_literal) = expression else {
+            panic!("expected object literal expression");
+        };
+
+        assert_eq!(
+            object_literal.left_brace_token().kind(),
+            TokenKind::LeftBrace
+        );
+        assert!(object_literal.members().is_empty());
+        assert_eq!(
+            object_literal.right_brace_token().kind(),
+            TokenKind::RightBrace
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_object_literal_expression_with_multiple_members() {
+        let source = SourceText::new("{name: value, age: 42}");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("object literal should parse");
+
+        let ExpressionSyntax::ObjectLiteral(object_literal) = expression else {
+            panic!("expected object literal expression");
+        };
+
+        assert_eq!(object_literal.members().len(), 2);
+
+        assert_eq!(
+            object_literal.members()[0].name_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            object_literal.members()[0].colon_token().kind(),
+            TokenKind::Colon
+        );
+        assert!(matches!(
+            object_literal.members()[0].value(),
+            ExpressionSyntax::Name(_)
+        ));
+
+        assert_eq!(
+            object_literal.members()[1].name_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            object_literal.members()[1].colon_token().kind(),
+            TokenKind::Colon
+        );
+        assert!(matches!(
+            object_literal.members()[1].value(),
+            ExpressionSyntax::Literal(_)
+        ));
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_object_literal_expression_accepts_expression_values() {
+        let source = SourceText::new("{name: first + last, result: foo()}");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::ObjectLiteral(object_literal) = expression else {
+            panic!("expected object literal expression");
+        };
+
+        assert_eq!(object_literal.members().len(), 2);
+        assert!(matches!(
+            object_literal.members()[0].value(),
+            ExpressionSyntax::Binary(_)
+        ));
+        assert!(matches!(
+            object_literal.members()[1].value(),
+            ExpressionSyntax::Call(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_object_literal_expression_supports_nesting() {
+        let source = SourceText::new("{nested: {value: 1}, items: [1, 2, 3]}");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::ObjectLiteral(object_literal) = expression else {
+            panic!("expected outer object literal expression");
+        };
+
+        assert_eq!(object_literal.members().len(), 2);
+        assert!(matches!(
+            object_literal.members()[0].value(),
+            ExpressionSyntax::ObjectLiteral(_)
+        ));
+        assert!(matches!(
+            object_literal.members()[1].value(),
+            ExpressionSyntax::ArrayLiteral(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_object_literal_expression_skips_trivia() {
+        let source = SourceText::new(
+            "{ /* comment */ name /* comment */ : /* comment */ 42 /* comment */ }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::ObjectLiteral(object_literal) = expression else {
+            panic!("expected object literal expression");
+        };
+
+        assert_eq!(object_literal.members().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_object_literal_expression_returns_none_without_value() {
+        let source = SourceText::new("{name:}");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::RightBrace);
+    }
+
+    #[test]
+    fn parser_object_literal_expression_returns_none_without_colon() {
+        let source = SourceText::new("{name 42}");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Number);
+    }
+
+    #[test]
+    fn parser_object_literal_expression_returns_none_without_member_after_comma() {
+        let source = SourceText::new("{name: 42,}");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::RightBrace);
+    }
+
+    #[test]
+    fn parser_object_literal_expression_returns_none_without_right_brace() {
+        let source = SourceText::new("{name: 42");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_object_literal_expression_returns_none_for_non_identifier_member_name() {
+        let source = SourceText::new("{42: value}");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Number);
     }
 
     #[test]
