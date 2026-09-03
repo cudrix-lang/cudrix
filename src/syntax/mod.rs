@@ -225,6 +225,68 @@ impl ArrayLiteralExpressionSyntax {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectMemberSyntax {
+    name_token: Token,
+    colon_token: Token,
+    value: ExpressionSyntax,
+}
+
+impl ObjectMemberSyntax {
+    pub fn new(name_token: Token, colon_token: Token, value: ExpressionSyntax) -> Self {
+        Self {
+            name_token,
+            colon_token,
+            value,
+        }
+    }
+
+    pub fn name_token(&self) -> Token {
+        self.name_token
+    }
+
+    pub fn colon_token(&self) -> Token {
+        self.colon_token
+    }
+
+    pub fn value(&self) -> &ExpressionSyntax {
+        &self.value
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ObjectLiteralExpressionSyntax {
+    left_brace_token: Token,
+    members: Vec<ObjectMemberSyntax>,
+    right_brace_token: Token,
+}
+
+impl ObjectLiteralExpressionSyntax {
+    pub fn new(
+        left_brace_token: Token,
+        members: Vec<ObjectMemberSyntax>,
+        right_brace_token: Token,
+    ) -> Self {
+        Self {
+            left_brace_token,
+            members,
+            right_brace_token,
+        }
+    }
+
+    pub fn left_brace_token(&self) -> Token {
+        self.left_brace_token
+    }
+
+    pub fn members(&self) -> &[ObjectMemberSyntax] {
+        &self.members
+    }
+
+    pub fn right_brace_token(&self) -> Token {
+        self.right_brace_token
+    }
+}
+
 impl CallExpressionSyntax {
     pub fn new(
         callee: ExpressionSyntax,
@@ -300,6 +362,7 @@ pub enum ExpressionSyntax {
     MemberAccess(MemberAccessExpressionSyntax),
     Index(IndexExpressionSyntax),
     ArrayLiteral(ArrayLiteralExpressionSyntax),
+    ObjectLiteral(ObjectLiteralExpressionSyntax),
     Call(CallExpressionSyntax),
     Parenthesized(ParenthesizedExpressionSyntax),
 }
@@ -566,6 +629,59 @@ mod tests {
         assert_eq!(
             expression,
             ExpressionSyntax::ArrayLiteral(array_literal_expression)
+        );
+    }
+
+    #[test]
+    fn object_member_preserves_name_colon_and_value() {
+        let name_token = Token::new(TokenKind::Identifier, SourceSpan::new(1, 4));
+        let colon_token = Token::new(TokenKind::Colon, SourceSpan::new(5, 1));
+        let value_token = Token::new(TokenKind::Number, SourceSpan::new(7, 2));
+
+        let value = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(value_token));
+
+        let object_member = ObjectMemberSyntax::new(name_token, colon_token, value.clone());
+
+        assert_eq!(object_member.name_token(), name_token);
+        assert_eq!(object_member.colon_token(), colon_token);
+        assert_eq!(object_member.value(), &value);
+    }
+
+    #[test]
+    fn object_literal_expression_preserves_braces_and_members() {
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(0, 1));
+        let name_token = Token::new(TokenKind::Identifier, SourceSpan::new(1, 4));
+        let colon_token = Token::new(TokenKind::Colon, SourceSpan::new(5, 1));
+        let value_token = Token::new(TokenKind::Number, SourceSpan::new(7, 1));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(8, 1));
+
+        let member = ObjectMemberSyntax::new(
+            name_token,
+            colon_token,
+            ExpressionSyntax::Literal(LiteralExpressionSyntax::new(value_token)),
+        );
+
+        let object_literal_expression = ObjectLiteralExpressionSyntax::new(
+            left_brace_token,
+            vec![member.clone()],
+            right_brace_token,
+        );
+
+        assert_eq!(
+            object_literal_expression.left_brace_token(),
+            left_brace_token
+        );
+        assert_eq!(object_literal_expression.members(), &[member]);
+        assert_eq!(
+            object_literal_expression.right_brace_token(),
+            right_brace_token
+        );
+
+        let expression = ExpressionSyntax::ObjectLiteral(object_literal_expression.clone());
+
+        assert_eq!(
+            expression,
+            ExpressionSyntax::ObjectLiteral(object_literal_expression)
         );
     }
 
