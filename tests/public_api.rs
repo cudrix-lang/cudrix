@@ -4,8 +4,8 @@ use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
     CallExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
-    MemberAccessExpressionSyntax, NameExpressionSyntax, ParenthesizedExpressionSyntax,
-    UnaryExpressionSyntax,
+    MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
+    ObjectMemberSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
 };
 
 #[test]
@@ -262,6 +262,44 @@ fn cudrix_exposes_array_literal_expression_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_object_literal_expression_syntax() {
+    let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(0, 1));
+    let name_token = Token::new(TokenKind::Identifier, SourceSpan::new(1, 4));
+    let colon_token = Token::new(TokenKind::Colon, SourceSpan::new(5, 1));
+    let value_token = Token::new(TokenKind::Number, SourceSpan::new(7, 2));
+    let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(9, 1));
+
+    let member = ObjectMemberSyntax::new(
+        name_token,
+        colon_token,
+        ExpressionSyntax::Literal(LiteralExpressionSyntax::new(value_token)),
+    );
+
+    let object_literal_expression = ObjectLiteralExpressionSyntax::new(
+        left_brace_token,
+        vec![member.clone()],
+        right_brace_token,
+    );
+
+    assert_eq!(
+        object_literal_expression.left_brace_token(),
+        left_brace_token
+    );
+    assert_eq!(object_literal_expression.members(), &[member]);
+    assert_eq!(
+        object_literal_expression.right_brace_token(),
+        right_brace_token
+    );
+
+    let expression = ExpressionSyntax::ObjectLiteral(object_literal_expression.clone());
+
+    assert_eq!(
+        expression,
+        ExpressionSyntax::ObjectLiteral(object_literal_expression)
+    );
+}
+
+#[test]
 fn cudrix_exposes_parenthesized_expression_syntax() {
     let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(0, 1));
     let literal_token = Token::new(TokenKind::Number, SourceSpan::new(1, 2));
@@ -510,5 +548,38 @@ fn cudrix_parser_exposes_array_literal_expression_parsing() {
     };
 
     assert_eq!(array_literal_expression.elements().len(), 2);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_object_literal_expression_parsing() {
+    let source = SourceText::new("{name: value, age: 42}");
+    let mut parser = Parser::new(&source);
+
+    let expression = parser
+        .parse_expression()
+        .expect("object literal expression should parse");
+
+    let ExpressionSyntax::ObjectLiteral(object_literal_expression) = expression else {
+        panic!("expected object literal expression");
+    };
+
+    assert_eq!(object_literal_expression.members().len(), 2);
+    assert_eq!(
+        object_literal_expression.members()[0].name_token().kind(),
+        TokenKind::Identifier
+    );
+    assert_eq!(
+        object_literal_expression.members()[0].colon_token().kind(),
+        TokenKind::Colon
+    );
+    assert!(matches!(
+        object_literal_expression.members()[0].value(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert!(matches!(
+        object_literal_expression.members()[1].value(),
+        ExpressionSyntax::Literal(_)
+    ));
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
