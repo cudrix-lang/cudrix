@@ -83,6 +83,53 @@ impl BinaryExpressionSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConditionalExpressionSyntax {
+    condition: Box<ExpressionSyntax>,
+    question_token: Token,
+    when_true: Box<ExpressionSyntax>,
+    colon_token: Token,
+    when_false: Box<ExpressionSyntax>,
+}
+
+impl ConditionalExpressionSyntax {
+    pub fn new(
+        condition: ExpressionSyntax,
+        question_token: Token,
+        when_true: ExpressionSyntax,
+        colon_token: Token,
+        when_false: ExpressionSyntax,
+    ) -> Self {
+        Self {
+            condition: Box::new(condition),
+            question_token,
+            when_true: Box::new(when_true),
+            colon_token,
+            when_false: Box::new(when_false),
+        }
+    }
+
+    pub fn condition(&self) -> &ExpressionSyntax {
+        &self.condition
+    }
+
+    pub fn question_token(&self) -> Token {
+        self.question_token
+    }
+
+    pub fn when_true(&self) -> &ExpressionSyntax {
+        &self.when_true
+    }
+
+    pub fn colon_token(&self) -> Token {
+        self.colon_token
+    }
+
+    pub fn when_false(&self) -> &ExpressionSyntax {
+        &self.when_false
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AssignmentExpressionSyntax {
     identifier_token: Token,
     assignment_token: Token,
@@ -358,6 +405,7 @@ pub enum ExpressionSyntax {
     Name(NameExpressionSyntax),
     Unary(UnaryExpressionSyntax),
     Binary(BinaryExpressionSyntax),
+    Conditional(ConditionalExpressionSyntax),
     Assignment(AssignmentExpressionSyntax),
     MemberAccess(MemberAccessExpressionSyntax),
     Index(IndexExpressionSyntax),
@@ -457,6 +505,57 @@ mod tests {
         let expression = ExpressionSyntax::Binary(binary_expression.clone());
 
         assert_eq!(expression, ExpressionSyntax::Binary(binary_expression));
+    }
+
+    #[test]
+    fn conditional_expression_preserves_condition_tokens_and_branches() {
+        let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 5));
+        let question_token = Token::new(TokenKind::QuestionMark, SourceSpan::new(6, 1));
+        let when_true_token = Token::new(TokenKind::Number, SourceSpan::new(8, 1));
+        let colon_token = Token::new(TokenKind::Colon, SourceSpan::new(10, 1));
+        let when_false_token = Token::new(TokenKind::Number, SourceSpan::new(12, 1));
+
+        let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+        let when_true = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(when_true_token));
+        let when_false = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(when_false_token));
+
+        let conditional_expression = ConditionalExpressionSyntax::new(
+            condition.clone(),
+            question_token,
+            when_true.clone(),
+            colon_token,
+            when_false.clone(),
+        );
+
+        assert_eq!(conditional_expression.condition(), &condition);
+        assert_eq!(conditional_expression.question_token(), question_token);
+        assert_eq!(conditional_expression.when_true(), &when_true);
+        assert_eq!(conditional_expression.colon_token(), colon_token);
+        assert_eq!(conditional_expression.when_false(), &when_false);
+    }
+
+    #[test]
+    fn expression_syntax_preserves_conditional_expression() {
+        let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 5));
+        let question_token = Token::new(TokenKind::QuestionMark, SourceSpan::new(6, 1));
+        let when_true_token = Token::new(TokenKind::Number, SourceSpan::new(8, 1));
+        let colon_token = Token::new(TokenKind::Colon, SourceSpan::new(10, 1));
+        let when_false_token = Token::new(TokenKind::Number, SourceSpan::new(12, 1));
+
+        let conditional_expression = ConditionalExpressionSyntax::new(
+            ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token)),
+            question_token,
+            ExpressionSyntax::Literal(LiteralExpressionSyntax::new(when_true_token)),
+            colon_token,
+            ExpressionSyntax::Literal(LiteralExpressionSyntax::new(when_false_token)),
+        );
+
+        let expression = ExpressionSyntax::Conditional(conditional_expression.clone());
+
+        assert_eq!(
+            expression,
+            ExpressionSyntax::Conditional(conditional_expression)
+        );
     }
 
     #[test]
