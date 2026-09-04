@@ -2,7 +2,7 @@ use cudrix::LANGUAGE_NAME;
 use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
-    ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
+    ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
     CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionStatementSyntax, ExpressionSyntax,
     IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
     NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
@@ -385,6 +385,24 @@ fn cudrix_exposes_statement_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_block_syntax() {
+    let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(0, 1));
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(2, 6));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(8, 1));
+    let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(10, 1));
+
+    let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+    let statement =
+        StatementSyntax::Expression(ExpressionStatementSyntax::new(expression, semicolon_token));
+
+    let block = BlockSyntax::new(left_brace_token, vec![statement.clone()], right_brace_token);
+
+    assert_eq!(block.left_brace_token(), left_brace_token);
+    assert_eq!(block.statements(), &[statement]);
+    assert_eq!(block.right_brace_token(), right_brace_token);
+}
+
+#[test]
 fn cudrix_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -623,6 +641,19 @@ fn cudrix_parser_exposes_statement_parsing() {
         expression_statement.semicolon_token().kind(),
         TokenKind::Semicolon
     );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_block_parsing() {
+    let source = SourceText::new("{ answer; 1 + 2; }");
+    let mut parser = Parser::new(&source);
+
+    let block = parser.parse_block().expect("expected block");
+
+    assert_eq!(block.left_brace_token().kind(), TokenKind::LeftBrace);
+    assert_eq!(block.statements().len(), 2);
+    assert_eq!(block.right_brace_token().kind(), TokenKind::RightBrace);
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
 
