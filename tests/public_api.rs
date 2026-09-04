@@ -3,10 +3,11 @@ use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
-    CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionStatementSyntax, ExpressionSyntax,
-    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
-    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
+    CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
+    ElseClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax, IndexExpressionSyntax,
+    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
+    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
+    StatementSyntax, UnaryExpressionSyntax,
 };
 
 #[test]
@@ -403,6 +404,54 @@ fn cudrix_exposes_block_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_else_clause_syntax() {
+    let else_keyword = Token::new(TokenKind::ElseKeyword, SourceSpan::new(0, 4));
+    let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(5, 1));
+    let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(6, 1));
+
+    let block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+    let else_clause = ElseClauseSyntax::new(else_keyword, block);
+
+    assert_eq!(else_clause.else_keyword(), else_keyword);
+    assert_eq!(else_clause.block().left_brace_token(), left_brace_token);
+    assert!(else_clause.block().statements().is_empty());
+    assert_eq!(else_clause.block().right_brace_token(), right_brace_token);
+}
+
+#[test]
+fn cudrix_exposes_conditional_statement_syntax() {
+    let if_keyword = Token::new(TokenKind::IfKeyword, SourceSpan::new(0, 2));
+    let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(3, 9));
+    let then_left_brace = Token::new(TokenKind::LeftBrace, SourceSpan::new(13, 1));
+    let then_right_brace = Token::new(TokenKind::RightBrace, SourceSpan::new(14, 1));
+    let else_keyword = Token::new(TokenKind::ElseKeyword, SourceSpan::new(16, 4));
+    let else_left_brace = Token::new(TokenKind::LeftBrace, SourceSpan::new(21, 1));
+    let else_right_brace = Token::new(TokenKind::RightBrace, SourceSpan::new(22, 1));
+
+    let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+    let then_block = BlockSyntax::new(then_left_brace, Vec::new(), then_right_brace);
+    let else_block = BlockSyntax::new(else_left_brace, Vec::new(), else_right_brace);
+    let else_clause = ElseClauseSyntax::new(else_keyword, else_block);
+
+    let conditional_statement =
+        ConditionalStatementSyntax::new(if_keyword, condition, then_block, Some(else_clause));
+
+    assert_eq!(conditional_statement.if_keyword(), if_keyword);
+    assert!(matches!(
+        conditional_statement.condition(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert!(conditional_statement.then_block().statements().is_empty());
+
+    let else_clause = conditional_statement
+        .else_clause()
+        .expect("expected else clause");
+
+    assert_eq!(else_clause.else_keyword(), else_keyword);
+    assert!(else_clause.block().statements().is_empty());
+}
+
+#[test]
 fn cudrix_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -643,6 +692,38 @@ fn cudrix_parser_exposes_statement_parsing() {
         expression_statement.semicolon_token().kind(),
         TokenKind::Semicolon
     );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_conditional_statement_parsing() {
+    let source = SourceText::new("if condition { answer; } else { fallback; }");
+    let mut parser = Parser::new(&source);
+
+    let statement = parser
+        .parse_statement()
+        .expect("conditional statement should parse through the public API");
+
+    let StatementSyntax::Conditional(conditional_statement) = statement else {
+        panic!("expected conditional statement");
+    };
+
+    assert_eq!(
+        conditional_statement.if_keyword().kind(),
+        TokenKind::IfKeyword
+    );
+    assert!(matches!(
+        conditional_statement.condition(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(conditional_statement.then_block().statements().len(), 1);
+
+    let else_clause = conditional_statement
+        .else_clause()
+        .expect("expected else clause");
+
+    assert_eq!(else_clause.else_keyword().kind(), TokenKind::ElseKeyword);
+    assert_eq!(else_clause.block().statements().len(), 1);
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
 
