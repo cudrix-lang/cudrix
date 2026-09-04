@@ -415,6 +415,34 @@ pub enum ExpressionSyntax {
     Parenthesized(ParenthesizedExpressionSyntax),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpressionStatementSyntax {
+    expression: ExpressionSyntax,
+    semicolon_token: Token,
+}
+
+impl ExpressionStatementSyntax {
+    pub fn new(expression: ExpressionSyntax, semicolon_token: Token) -> Self {
+        Self {
+            expression,
+            semicolon_token,
+        }
+    }
+
+    pub fn expression(&self) -> &ExpressionSyntax {
+        &self.expression
+    }
+
+    pub fn semicolon_token(&self) -> Token {
+        self.semicolon_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StatementSyntax {
+    Expression(ExpressionStatementSyntax),
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -882,5 +910,32 @@ mod tests {
             expression,
             ExpressionSyntax::Parenthesized(parenthesized_expression)
         );
+    }
+
+    #[test]
+    fn expression_statement_preserves_expression_and_semicolon() {
+        let literal_token = Token::new(TokenKind::Number, SourceSpan::new(0, 2));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(2, 1));
+
+        let expression = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(literal_token));
+
+        let expression_statement =
+            ExpressionStatementSyntax::new(expression.clone(), semicolon_token);
+
+        assert_eq!(expression_statement.expression(), &expression);
+        assert_eq!(expression_statement.semicolon_token(), semicolon_token);
+    }
+
+    #[test]
+    fn statement_syntax_preserves_expression_statement() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(6, 1));
+
+        let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+        let expression_statement = ExpressionStatementSyntax::new(expression, semicolon_token);
+
+        let statement = StatementSyntax::Expression(expression_statement.clone());
+
+        assert_eq!(statement, StatementSyntax::Expression(expression_statement));
     }
 }
