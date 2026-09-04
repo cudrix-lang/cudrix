@@ -4,9 +4,10 @@ use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
-    CallExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
-    MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
-    ObjectMemberSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax,
+    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
+    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
+    UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -34,7 +35,7 @@ impl<'source> Parser<'source> {
     }
 
     pub fn parse_assignment_expression(&mut self) -> Option<ExpressionSyntax> {
-        let left = self.parse_binary_expression(0)?;
+        let left = self.parse_conditional_expression()?;
 
         if self.current_token.kind() != TokenKind::Assignment {
             return Some(left);
@@ -54,6 +55,38 @@ impl<'source> Parser<'source> {
                 name_expression.identifier_token(),
                 assignment_token,
                 expression,
+            ),
+        ))
+    }
+
+    fn parse_conditional_expression(&mut self) -> Option<ExpressionSyntax> {
+        let condition = self.parse_binary_expression(0)?;
+
+        if self.current_token.kind() != TokenKind::QuestionMark {
+            return Some(condition);
+        }
+
+        let question_token = self.current_token;
+        self.advance();
+
+        let when_true = self.parse_expression()?;
+
+        if self.current_token.kind() != TokenKind::Colon {
+            return None;
+        }
+
+        let colon_token = self.current_token;
+        self.advance();
+
+        let when_false = self.parse_conditional_expression()?;
+
+        Some(ExpressionSyntax::Conditional(
+            ConditionalExpressionSyntax::new(
+                condition,
+                question_token,
+                when_true,
+                colon_token,
+                when_false,
             ),
         ))
     }
@@ -2386,6 +2419,167 @@ mod tests {
         };
 
         assert_eq!(addition.operator_token().kind(), TokenKind::Plus);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_conditional_expression() {
+        let source = SourceText::new("condition ? when_true : when_false");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("conditional expression should parse");
+
+        let ExpressionSyntax::Conditional(conditional) = expression else {
+            panic!("expected conditional expression");
+        };
+
+        assert!(matches!(conditional.condition(), ExpressionSyntax::Name(_)));
+        assert_eq!(conditional.question_token().kind(), TokenKind::QuestionMark);
+        assert!(matches!(conditional.when_true(), ExpressionSyntax::Name(_)));
+        assert_eq!(conditional.colon_token().kind(), TokenKind::Colon);
+        assert!(matches!(
+            conditional.when_false(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_binary_expression_binds_tighter_than_conditional_expression() {
+        let source = SourceText::new("score > 90 ? 1 : 0");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Conditional(conditional) = expression else {
+            panic!("expected conditional expression");
+        };
+
+        let ExpressionSyntax::Binary(condition) = conditional.condition() else {
+            panic!("expected binary condition");
+        };
+
+        assert_eq!(condition.operator_token().kind(), TokenKind::GreaterThan);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_conditional_expression_binds_tighter_than_assignment_expression() {
+        let source = SourceText::new("result = condition ? when_true : when_false");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Assignment(assignment) = expression else {
+            panic!("expected assignment expression");
+        };
+
+        assert!(matches!(
+            assignment.expression(),
+            ExpressionSyntax::Conditional(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_conditional_expression_is_right_associative() {
+        let source = SourceText::new("a ? b : c ? d : e");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Conditional(outer) = expression else {
+            panic!("expected outer conditional expression");
+        };
+
+        assert!(matches!(outer.condition(), ExpressionSyntax::Name(_)));
+        assert!(matches!(outer.when_true(), ExpressionSyntax::Name(_)));
+        assert!(matches!(
+            outer.when_false(),
+            ExpressionSyntax::Conditional(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_conditional_expression_accepts_assignment_in_true_branch() {
+        let source = SourceText::new("condition ? value = 1 : fallback");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        let ExpressionSyntax::Conditional(conditional) = expression else {
+            panic!("expected conditional expression");
+        };
+
+        assert!(matches!(
+            conditional.when_true(),
+            ExpressionSyntax::Assignment(_)
+        ));
+        assert!(matches!(
+            conditional.when_false(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_conditional_expression_does_not_become_assignment_target() {
+        let source = SourceText::new("condition ? first : second = value");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser
+            .parse_expression()
+            .expect("conditional expression should parse");
+
+        assert!(matches!(expression, ExpressionSyntax::Conditional(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::Assignment);
+    }
+
+    #[test]
+    fn parser_conditional_expression_skips_trivia() {
+        let source =
+            SourceText::new("condition /* comment */ ? /* comment */ first /* comment */ : second");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().unwrap();
+
+        assert!(matches!(expression, ExpressionSyntax::Conditional(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_conditional_expression_returns_none_without_true_branch() {
+        let source = SourceText::new("condition ? : fallback");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Colon);
+    }
+
+    #[test]
+    fn parser_conditional_expression_returns_none_without_colon() {
+        let source = SourceText::new("condition ? when_true");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_conditional_expression_returns_none_without_false_branch() {
+        let source = SourceText::new("condition ? when_true :");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression();
+
+        assert_eq!(expression, None);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 }
