@@ -443,6 +443,39 @@ pub enum StatementSyntax {
     Expression(ExpressionStatementSyntax),
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct BlockSyntax {
+    left_brace_token: Token,
+    statements: Vec<StatementSyntax>,
+    right_brace_token: Token,
+}
+
+impl BlockSyntax {
+    pub fn new(
+        left_brace_token: Token,
+        statements: Vec<StatementSyntax>,
+        right_brace_token: Token,
+    ) -> Self {
+        Self {
+            left_brace_token,
+            statements,
+            right_brace_token,
+        }
+    }
+
+    pub fn left_brace_token(&self) -> Token {
+        self.left_brace_token
+    }
+
+    pub fn statements(&self) -> &[StatementSyntax] {
+        &self.statements
+    }
+
+    pub fn right_brace_token(&self) -> Token {
+        self.right_brace_token
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -937,5 +970,37 @@ mod tests {
         let statement = StatementSyntax::Expression(expression_statement.clone());
 
         assert_eq!(statement, StatementSyntax::Expression(expression_statement));
+    }
+
+    #[test]
+    fn block_syntax_preserves_braces_and_statements() {
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(0, 1));
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(2, 6));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(8, 1));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(10, 1));
+
+        let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+        let statement = StatementSyntax::Expression(ExpressionStatementSyntax::new(
+            expression,
+            semicolon_token,
+        ));
+
+        let block = BlockSyntax::new(left_brace_token, vec![statement.clone()], right_brace_token);
+
+        assert_eq!(block.left_brace_token(), left_brace_token);
+        assert_eq!(block.statements(), &[statement]);
+        assert_eq!(block.right_brace_token(), right_brace_token);
+    }
+
+    #[test]
+    fn block_syntax_preserves_empty_statement_list() {
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(0, 1));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(1, 1));
+
+        let block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+        assert_eq!(block.left_brace_token(), left_brace_token);
+        assert!(block.statements().is_empty());
+        assert_eq!(block.right_brace_token(), right_brace_token);
     }
 }
