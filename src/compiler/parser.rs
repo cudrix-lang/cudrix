@@ -3032,4 +3032,157 @@ mod tests {
 
         assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
     }
+
+    #[test]
+    fn parser_conditional_statement_supports_nested_conditional_in_then_block() {
+        let source = SourceText::new("if outer { if inner { answer; } }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected outer conditional statement");
+
+        let StatementSyntax::Conditional(outer_conditional) = statement else {
+            panic!("expected outer conditional statement");
+        };
+
+        assert_eq!(outer_conditional.then_block().statements().len(), 1);
+
+        let StatementSyntax::Conditional(inner_conditional) =
+            &outer_conditional.then_block().statements()[0]
+        else {
+            panic!("expected nested conditional statement");
+        };
+
+        assert!(matches!(
+            inner_conditional.condition(),
+            ExpressionSyntax::Name(_)
+        ));
+    }
+
+    #[test]
+    fn parser_conditional_statement_supports_nested_conditional_in_else_block() {
+        let source = SourceText::new("if outer {} else { if inner { answer; } }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected outer conditional statement");
+
+        let StatementSyntax::Conditional(outer_conditional) = statement else {
+            panic!("expected outer conditional statement");
+        };
+
+        let else_clause = outer_conditional
+            .else_clause()
+            .expect("expected outer else clause");
+
+        assert_eq!(else_clause.block().statements().len(), 1);
+
+        assert!(matches!(
+            &else_clause.block().statements()[0],
+            StatementSyntax::Conditional(_)
+        ));
+    }
+
+    #[test]
+    fn parser_conditional_statement_skips_trivia() {
+        let source = SourceText::new(
+            "if /* condition */ condition /* then */ { answer; } /* else */ else /* block */ { fallback; }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert_eq!(conditional_statement.then_block().statements().len(), 1);
+        assert!(conditional_statement.else_clause().is_some());
+    }
+
+    #[test]
+    fn parser_conditional_statement_returns_none_without_condition() {
+        let source = SourceText::new("if");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+    }
+
+    #[test]
+    fn parser_conditional_statement_returns_none_without_then_block() {
+        let source = SourceText::new("if condition");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+    }
+
+    #[test]
+    fn parser_conditional_statement_returns_none_when_else_has_no_block() {
+        let source = SourceText::new("if condition {} else");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+    }
+
+    #[test]
+    fn parser_conditional_statement_condition_can_be_object_literal() {
+        let source = SourceText::new("if { value: 42 } { answer; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert!(matches!(
+            conditional_statement.condition(),
+            ExpressionSyntax::ObjectLiteral(_)
+        ));
+
+        assert_eq!(conditional_statement.then_block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_conditional_statement_condition_can_be_conditional_expression() {
+        let source = SourceText::new("if condition ? when_true : when_false { answer; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert!(matches!(
+            conditional_statement.condition(),
+            ExpressionSyntax::Conditional(_)
+        ));
+    }
+
+    #[test]
+    fn parser_block_accepts_conditional_and_expression_statements() {
+        let source = SourceText::new("{ if condition { answer; } fallback; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.statements().len(), 2);
+        assert!(matches!(
+            &block.statements()[0],
+            StatementSyntax::Conditional(_)
+        ));
+        assert!(matches!(
+            &block.statements()[1],
+            StatementSyntax::Expression(_)
+        ));
+    }
 }
