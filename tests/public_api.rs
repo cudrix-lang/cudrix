@@ -3,10 +3,10 @@ use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
-    CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax,
-    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
-    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
-    UnaryExpressionSyntax,
+    CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionStatementSyntax, ExpressionSyntax,
+    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
+    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
+    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
 };
 
 #[test]
@@ -369,6 +369,22 @@ fn cudrix_exposes_expression_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_statement_syntax() {
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 6));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(6, 1));
+
+    let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(identifier_token));
+    let expression_statement = ExpressionStatementSyntax::new(expression.clone(), semicolon_token);
+
+    assert_eq!(expression_statement.expression(), &expression);
+    assert_eq!(expression_statement.semicolon_token(), semicolon_token);
+
+    let statement = StatementSyntax::Expression(expression_statement.clone());
+
+    assert_eq!(statement, StatementSyntax::Expression(expression_statement));
+}
+
+#[test]
 fn cudrix_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -584,6 +600,28 @@ fn cudrix_parser_exposes_expression_parsing() {
     assert_eq!(
         name_expression.identifier_token().span(),
         SourceSpan::new(0, 6)
+    );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_statement_parsing() {
+    let source = SourceText::new("answer;");
+    let mut parser = Parser::new(&source);
+
+    let statement = parser
+        .parse_statement()
+        .expect("expression statement should parse through the public API");
+
+    let StatementSyntax::Expression(expression_statement) = statement;
+
+    assert!(matches!(
+        expression_statement.expression(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(
+        expression_statement.semicolon_token().kind(),
+        TokenKind::Semicolon
     );
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
