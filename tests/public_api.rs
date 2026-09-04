@@ -3,9 +3,10 @@ use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
-    CallExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
-    MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
-    ObjectMemberSyntax, ParenthesizedExpressionSyntax, UnaryExpressionSyntax,
+    CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax,
+    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
+    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
+    UnaryExpressionSyntax,
 };
 
 #[test]
@@ -94,6 +95,40 @@ fn cudrix_exposes_binary_expression_syntax() {
     assert_eq!(expression.operator_token(), operator_token);
     assert!(matches!(expression.left(), ExpressionSyntax::Literal(_)));
     assert!(matches!(expression.right(), ExpressionSyntax::Literal(_)));
+}
+
+#[test]
+fn cudrix_exposes_conditional_expression_syntax() {
+    let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 5));
+    let question_token = Token::new(TokenKind::QuestionMark, SourceSpan::new(6, 1));
+    let when_true_token = Token::new(TokenKind::Number, SourceSpan::new(8, 1));
+    let colon_token = Token::new(TokenKind::Colon, SourceSpan::new(10, 1));
+    let when_false_token = Token::new(TokenKind::Number, SourceSpan::new(12, 1));
+
+    let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+    let when_true = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(when_true_token));
+    let when_false = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(when_false_token));
+
+    let conditional_expression = ConditionalExpressionSyntax::new(
+        condition.clone(),
+        question_token,
+        when_true.clone(),
+        colon_token,
+        when_false.clone(),
+    );
+
+    assert_eq!(conditional_expression.condition(), &condition);
+    assert_eq!(conditional_expression.question_token(), question_token);
+    assert_eq!(conditional_expression.when_true(), &when_true);
+    assert_eq!(conditional_expression.colon_token(), colon_token);
+    assert_eq!(conditional_expression.when_false(), &when_false);
+
+    let expression = ExpressionSyntax::Conditional(conditional_expression.clone());
+
+    assert_eq!(
+        expression,
+        ExpressionSyntax::Conditional(conditional_expression)
+    );
 }
 
 #[test]
@@ -418,6 +453,42 @@ fn cudrix_parser_exposes_binary_expression_parsing() {
     assert!(matches!(
         binary_expression.right(),
         ExpressionSyntax::Literal(_)
+    ));
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_conditional_expression_parsing() {
+    let source = SourceText::new("condition ? when_true : when_false");
+    let mut parser = Parser::new(&source);
+
+    let expression = parser
+        .parse_expression()
+        .expect("conditional expression should parse through the public API");
+
+    let ExpressionSyntax::Conditional(conditional_expression) = expression else {
+        panic!("expected conditional expression");
+    };
+
+    assert!(matches!(
+        conditional_expression.condition(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(
+        conditional_expression.question_token().kind(),
+        TokenKind::QuestionMark
+    );
+    assert!(matches!(
+        conditional_expression.when_true(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(
+        conditional_expression.colon_token().kind(),
+        TokenKind::Colon
+    );
+    assert!(matches!(
+        conditional_expression.when_false(),
+        ExpressionSyntax::Name(_)
     ));
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
