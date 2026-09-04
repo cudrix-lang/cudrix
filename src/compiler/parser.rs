@@ -4,10 +4,10 @@ use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
-    CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionStatementSyntax, ExpressionSyntax,
-    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
-    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
+    CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
+    ExpressionStatementSyntax, ExpressionSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
+    ObjectMemberSyntax, ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -56,7 +56,26 @@ impl<'source> Parser<'source> {
     }
 
     pub fn parse_statement(&mut self) -> Option<StatementSyntax> {
-        self.parse_expression_statement()
+        match self.current_token.kind() {
+            TokenKind::IfKeyword => self.parse_conditional_statement(),
+            _ => self.parse_expression_statement(),
+        }
+    }
+
+    fn parse_conditional_statement(&mut self) -> Option<StatementSyntax> {
+        if self.current_token.kind() != TokenKind::IfKeyword {
+            return None;
+        }
+
+        let if_keyword = self.current_token;
+        self.advance();
+
+        let condition = self.parse_expression()?;
+        let then_block = self.parse_block()?;
+
+        Some(StatementSyntax::Conditional(
+            ConditionalStatementSyntax::new(if_keyword, condition, then_block, None),
+        ))
     }
 
     fn parse_expression_statement(&mut self) -> Option<StatementSyntax> {
@@ -2866,5 +2885,82 @@ mod tests {
             statement.expression(),
             ExpressionSyntax::ObjectLiteral(_)
         ));
+    }
+
+    #[test]
+    fn parser_parses_conditional_statement_without_else() {
+        let source = SourceText::new("if condition { answer; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert_eq!(
+            conditional_statement.if_keyword().kind(),
+            TokenKind::IfKeyword
+        );
+
+        assert!(matches!(
+            conditional_statement.condition(),
+            ExpressionSyntax::Name(_)
+        ));
+
+        assert!(conditional_statement.else_clause().is_none());
+        assert_eq!(conditional_statement.then_block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_conditional_statement_accepts_full_expression_condition() {
+        let source = SourceText::new("if score > 90 && ready { answer; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert!(matches!(
+            conditional_statement.condition(),
+            ExpressionSyntax::Binary(_)
+        ));
+
+        assert_eq!(conditional_statement.then_block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_conditional_statement_accepts_empty_then_block() {
+        let source = SourceText::new("if condition {}");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert!(conditional_statement.then_block().statements().is_empty());
+        assert!(conditional_statement.else_clause().is_none());
+    }
+
+    #[test]
+    fn parser_conditional_statement_advances_past_then_block() {
+        let source = SourceText::new("if condition {} next;");
+        let mut parser = Parser::new(&source);
+
+        parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
     }
 }
