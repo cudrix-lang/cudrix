@@ -4,10 +4,10 @@ use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
-    CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionSyntax, IndexExpressionSyntax,
-    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
-    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
-    UnaryExpressionSyntax,
+    CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionStatementSyntax, ExpressionSyntax,
+    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
+    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
+    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -28,6 +28,26 @@ impl<'source> Parser<'source> {
 
     pub fn current_token(&self) -> Token {
         self.current_token
+    }
+
+    pub fn parse_statement(&mut self) -> Option<StatementSyntax> {
+        self.parse_expression_statement()
+    }
+
+    fn parse_expression_statement(&mut self) -> Option<StatementSyntax> {
+        let expression = self.parse_expression()?;
+
+        if self.current_token.kind() != TokenKind::Semicolon {
+            return None;
+        }
+
+        let semicolon_token = self.current_token;
+        self.advance();
+
+        Some(StatementSyntax::Expression(ExpressionStatementSyntax::new(
+            expression,
+            semicolon_token,
+        )))
     }
 
     pub fn parse_expression(&mut self) -> Option<ExpressionSyntax> {
@@ -2581,5 +2601,85 @@ mod tests {
 
         assert_eq!(expression, None);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_expression_statement() {
+        let source = SourceText::new("answer;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected expression statement");
+
+        let StatementSyntax::Expression(expression_statement) = statement;
+
+        assert!(matches!(
+            expression_statement.expression(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(
+            expression_statement.semicolon_token().kind(),
+            TokenKind::Semicolon
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_expression_statement_accepts_full_expression() {
+        let source = SourceText::new("answer = condition ? first : second;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected expression statement");
+
+        let StatementSyntax::Expression(expression_statement) = statement;
+
+        assert!(matches!(
+            expression_statement.expression(),
+            ExpressionSyntax::Assignment(_)
+        ));
+        assert_eq!(
+            expression_statement.semicolon_token().kind(),
+            TokenKind::Semicolon
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_expression_statement_skips_trivia_before_semicolon() {
+        let source = SourceText::new("answer /* comment */ ;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected expression statement");
+
+        let StatementSyntax::Expression(expression_statement) = statement;
+
+        assert_eq!(
+            expression_statement.semicolon_token().kind(),
+            TokenKind::Semicolon
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_expression_statement_returns_none_without_semicolon() {
+        let source = SourceText::new("answer");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_statement_returns_none_for_non_expression() {
+        let source = SourceText::new(";");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
     }
 }
