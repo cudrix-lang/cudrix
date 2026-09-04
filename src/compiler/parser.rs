@@ -2764,4 +2764,95 @@ mod tests {
 
         assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
     }
+
+    #[test]
+    fn parser_block_accepts_full_expression_statement() {
+        let source = SourceText::new("{ value = condition ? foo(1)[0].bar : {name: 42}; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.statements().len(), 1);
+
+        let StatementSyntax::Expression(statement) = &block.statements()[0];
+
+        assert!(matches!(
+            statement.expression(),
+            ExpressionSyntax::Assignment(_)
+        ));
+    }
+
+    #[test]
+    fn parser_block_skips_trivia() {
+        let source = SourceText::new(
+            "{
+                // first
+                answer;
+
+                /* second */
+                1 + 2;
+            }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.statements().len(), 2);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_block_returns_none_without_right_brace() {
+        let source = SourceText::new("{ answer;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_block().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_block_returns_none_for_incomplete_statement() {
+        let source = SourceText::new("{ answer }");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_block().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::RightBrace);
+    }
+
+    #[test]
+    fn parser_block_rejects_non_left_brace_without_advancing() {
+        let source = SourceText::new("answer;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_block().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
+    }
+
+    #[test]
+    fn parser_expression_still_parses_object_literal() {
+        let source = SourceText::new("{name: 42}");
+        let mut parser = Parser::new(&source);
+
+        let expression = parser.parse_expression().expect("expected expression");
+
+        assert!(matches!(expression, ExpressionSyntax::ObjectLiteral(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_block_can_contain_object_literal_expression_statement() {
+        let source = SourceText::new("{ {name: 42}; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.statements().len(), 1);
+
+        let StatementSyntax::Expression(statement) = &block.statements()[0];
+
+        assert!(matches!(
+            statement.expression(),
+            ExpressionSyntax::ObjectLiteral(_)
+        ));
+    }
 }
