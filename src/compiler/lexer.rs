@@ -37,6 +37,7 @@ pub enum TokenKind {
     RightBracket,
     Comma,
     Colon,
+    QuestionMark,
     Semicolon,
     Dot,
 
@@ -182,6 +183,7 @@ impl<'source> Lexer<'source> {
             ']' => Some(TokenKind::RightBracket),
             ',' => Some(TokenKind::Comma),
             ':' => Some(TokenKind::Colon),
+            '?' => Some(TokenKind::QuestionMark),
             ';' => Some(TokenKind::Semicolon),
             '.' => Some(TokenKind::Dot),
             _ => None,
@@ -1213,6 +1215,7 @@ mod tests {
             ("]", TokenKind::RightBracket),
             (",", TokenKind::Comma),
             (":", TokenKind::Colon),
+            ("?", TokenKind::QuestionMark),
             (";", TokenKind::Semicolon),
             (".", TokenKind::Dot),
         ];
