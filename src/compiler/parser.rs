@@ -3,7 +3,7 @@
 use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
-    ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax,
+    ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
     CallExpressionSyntax, ConditionalExpressionSyntax, ExpressionStatementSyntax, ExpressionSyntax,
     IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
     NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
@@ -28,6 +28,31 @@ impl<'source> Parser<'source> {
 
     pub fn current_token(&self) -> Token {
         self.current_token
+    }
+
+    pub fn parse_block(&mut self) -> Option<BlockSyntax> {
+        if self.current_token.kind() != TokenKind::LeftBrace {
+            return None;
+        }
+
+        let left_brace_token = self.current_token;
+        self.advance();
+
+        let mut statements = Vec::new();
+
+        while self.current_token.kind() != TokenKind::RightBrace {
+            let statement = self.parse_statement()?;
+            statements.push(statement);
+        }
+
+        let right_brace_token = self.current_token;
+        self.advance();
+
+        Some(BlockSyntax::new(
+            left_brace_token,
+            statements,
+            right_brace_token,
+        ))
     }
 
     pub fn parse_statement(&mut self) -> Option<StatementSyntax> {
@@ -2681,5 +2706,62 @@ mod tests {
 
         assert!(parser.parse_statement().is_none());
         assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_parses_empty_block() {
+        let source = SourceText::new("{}");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.left_brace_token().kind(), TokenKind::LeftBrace);
+        assert!(block.statements().is_empty());
+        assert_eq!(block.right_brace_token().kind(), TokenKind::RightBrace);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_block_with_single_statement() {
+        let source = SourceText::new("{ answer; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.statements().len(), 1);
+
+        let StatementSyntax::Expression(statement) = &block.statements()[0];
+
+        assert!(matches!(statement.expression(), ExpressionSyntax::Name(_)));
+        assert_eq!(statement.semicolon_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_parses_block_with_multiple_statements() {
+        let source = SourceText::new("{ answer; 1 + 2; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.statements().len(), 2);
+
+        assert!(matches!(
+            block.statements()[0],
+            StatementSyntax::Expression(_)
+        ));
+        assert!(matches!(
+            block.statements()[1],
+            StatementSyntax::Expression(_)
+        ));
+    }
+
+    #[test]
+    fn parser_block_advances_past_right_brace() {
+        let source = SourceText::new("{} answer");
+        let mut parser = Parser::new(&source);
+
+        parser.parse_block().expect("expected block");
+
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
     }
 }
