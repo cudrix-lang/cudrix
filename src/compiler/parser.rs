@@ -2637,7 +2637,9 @@ mod tests {
             .parse_statement()
             .expect("expected expression statement");
 
-        let StatementSyntax::Expression(expression_statement) = statement;
+        let StatementSyntax::Expression(expression_statement) = statement else {
+            panic!("expected expression statement");
+        };
 
         assert!(matches!(
             expression_statement.expression(),
@@ -2659,7 +2661,9 @@ mod tests {
             .parse_statement()
             .expect("expected expression statement");
 
-        let StatementSyntax::Expression(expression_statement) = statement;
+        let StatementSyntax::Expression(expression_statement) = statement else {
+            panic!("expected expression statement");
+        };
 
         assert!(matches!(
             expression_statement.expression(),
@@ -2681,7 +2685,9 @@ mod tests {
             .parse_statement()
             .expect("expected expression statement");
 
-        let StatementSyntax::Expression(expression_statement) = statement;
+        let StatementSyntax::Expression(expression_statement) = statement else {
+            panic!("expected expression statement");
+        };
 
         assert_eq!(
             expression_statement.semicolon_token().kind(),
@@ -2730,7 +2736,9 @@ mod tests {
 
         assert_eq!(block.statements().len(), 1);
 
-        let StatementSyntax::Expression(statement) = &block.statements()[0];
+        let StatementSyntax::Expression(statement) = &block.statements()[0] else {
+            panic!("expected expression statement");
+        };
 
         assert!(matches!(statement.expression(), ExpressionSyntax::Name(_)));
         assert_eq!(statement.semicolon_token().kind(), TokenKind::Semicolon);
@@ -2774,7 +2782,9 @@ mod tests {
 
         assert_eq!(block.statements().len(), 1);
 
-        let StatementSyntax::Expression(statement) = &block.statements()[0];
+        let StatementSyntax::Expression(statement) = &block.statements()[0] else {
+            panic!("expected expression statement");
+        };
 
         assert!(matches!(
             statement.expression(),
@@ -2848,7 +2858,9 @@ mod tests {
 
         assert_eq!(block.statements().len(), 1);
 
-        let StatementSyntax::Expression(statement) = &block.statements()[0];
+        let StatementSyntax::Expression(statement) = &block.statements()[0] else {
+            panic!("expected expression statement");
+        };
 
         assert!(matches!(
             statement.expression(),

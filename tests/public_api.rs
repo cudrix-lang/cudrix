@@ -631,7 +631,9 @@ fn cudrix_parser_exposes_statement_parsing() {
         .parse_statement()
         .expect("expression statement should parse through the public API");
 
-    let StatementSyntax::Expression(expression_statement) = statement;
+    let StatementSyntax::Expression(expression_statement) = statement else {
+        panic!("expected expression statement");
+    };
 
     assert!(matches!(
         expression_statement.expression(),
