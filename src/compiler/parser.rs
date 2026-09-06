@@ -76,7 +76,7 @@ impl<'source> Parser<'source> {
 
         let mut elseif_clauses = Vec::new();
 
-        if self.current_token.kind() == TokenKind::ElseIfKeyword {
+        while self.current_token.kind() == TokenKind::ElseIfKeyword {
             let elseif_keyword = self.current_token;
             self.advance();
 
@@ -2972,6 +2972,82 @@ mod tests {
             ExpressionSyntax::Name(_)
         ));
         assert_eq!(elseif_clause.block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_parses_conditional_statement_with_multiple_elseif_clauses() {
+        let source = SourceText::new("if first {} elseif second {} elseif third { answer; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert_eq!(conditional_statement.elseif_clauses().len(), 2);
+        assert!(conditional_statement.else_clause().is_none());
+
+        let first_elseif_clause = &conditional_statement.elseif_clauses()[0];
+        let second_elseif_clause = &conditional_statement.elseif_clauses()[1];
+
+        assert_eq!(
+            first_elseif_clause.elseif_keyword().kind(),
+            TokenKind::ElseIfKeyword
+        );
+        assert!(matches!(
+            first_elseif_clause.condition(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert!(first_elseif_clause.block().statements().is_empty());
+
+        assert_eq!(
+            second_elseif_clause.elseif_keyword().kind(),
+            TokenKind::ElseIfKeyword
+        );
+        assert!(matches!(
+            second_elseif_clause.condition(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(second_elseif_clause.block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_parses_conditional_statement_with_elseif_and_else() {
+        let source =
+            SourceText::new("if first {} elseif second {} elseif third {} else { fallback; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert_eq!(conditional_statement.elseif_clauses().len(), 2);
+
+        let else_clause = conditional_statement
+            .else_clause()
+            .expect("expected else clause");
+
+        assert_eq!(else_clause.else_keyword().kind(), TokenKind::ElseKeyword);
+        assert_eq!(else_clause.block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_conditional_statement_advances_past_elseif_and_else_chain() {
+        let source = SourceText::new("if first {} elseif second {} elseif third {} else {} next;");
+        let mut parser = Parser::new(&source);
+
+        parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
     }
 
     #[test]
