@@ -86,7 +86,13 @@ impl<'source> Parser<'source> {
         };
 
         Some(StatementSyntax::Conditional(
-            ConditionalStatementSyntax::new(if_keyword, condition, then_block, else_clause),
+            ConditionalStatementSyntax::new(
+                if_keyword,
+                condition,
+                then_block,
+                Vec::new(),
+                else_clause,
+            ),
         ))
     }
 

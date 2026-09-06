@@ -433,8 +433,13 @@ fn cudrix_exposes_conditional_statement_syntax() {
     let else_block = BlockSyntax::new(else_left_brace, Vec::new(), else_right_brace);
     let else_clause = ElseClauseSyntax::new(else_keyword, else_block);
 
-    let conditional_statement =
-        ConditionalStatementSyntax::new(if_keyword, condition, then_block, Some(else_clause));
+    let conditional_statement = ConditionalStatementSyntax::new(
+        if_keyword,
+        condition,
+        then_block,
+        Vec::new(),
+        Some(else_clause),
+    );
 
     assert_eq!(conditional_statement.if_keyword(), if_keyword);
     assert!(matches!(

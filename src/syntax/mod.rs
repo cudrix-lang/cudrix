@@ -439,6 +439,35 @@ impl ExpressionStatementSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ElseIfClauseSyntax {
+    elseif_keyword: Token,
+    condition: ExpressionSyntax,
+    block: BlockSyntax,
+}
+
+impl ElseIfClauseSyntax {
+    pub fn new(elseif_keyword: Token, condition: ExpressionSyntax, block: BlockSyntax) -> Self {
+        Self {
+            elseif_keyword,
+            condition,
+            block,
+        }
+    }
+
+    pub fn elseif_keyword(&self) -> Token {
+        self.elseif_keyword
+    }
+
+    pub fn condition(&self) -> &ExpressionSyntax {
+        &self.condition
+    }
+
+    pub fn block(&self) -> &BlockSyntax {
+        &self.block
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElseClauseSyntax {
     else_keyword: Token,
     block: BlockSyntax,
@@ -466,6 +495,7 @@ pub struct ConditionalStatementSyntax {
     if_keyword: Token,
     condition: ExpressionSyntax,
     then_block: BlockSyntax,
+    elseif_clauses: Vec<ElseIfClauseSyntax>,
     else_clause: Option<ElseClauseSyntax>,
 }
 
@@ -474,12 +504,14 @@ impl ConditionalStatementSyntax {
         if_keyword: Token,
         condition: ExpressionSyntax,
         then_block: BlockSyntax,
+        elseif_clauses: Vec<ElseIfClauseSyntax>,
         else_clause: Option<ElseClauseSyntax>,
     ) -> Self {
         Self {
             if_keyword,
             condition,
             then_block,
+            elseif_clauses,
             else_clause,
         }
     }
@@ -494,6 +526,10 @@ impl ConditionalStatementSyntax {
 
     pub fn then_block(&self) -> &BlockSyntax {
         &self.then_block
+    }
+
+    pub fn elseif_clauses(&self) -> &[ElseIfClauseSyntax] {
+        &self.elseif_clauses
     }
 
     pub fn else_clause(&self) -> Option<&ElseClauseSyntax> {
@@ -1082,6 +1118,70 @@ mod tests {
     }
 
     #[test]
+    fn elseif_clause_preserves_keyword_condition_and_block() {
+        let elseif_keyword = Token::new(TokenKind::ElseIfKeyword, SourceSpan::new(0, 6));
+        let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 9));
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(17, 1));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(18, 1));
+
+        let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+        let block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+        let elseif_clause =
+            ElseIfClauseSyntax::new(elseif_keyword, condition.clone(), block.clone());
+
+        assert_eq!(elseif_clause.elseif_keyword(), elseif_keyword);
+        assert_eq!(elseif_clause.condition(), &condition);
+        assert_eq!(elseif_clause.block(), &block);
+    }
+
+    #[test]
+    fn conditional_statement_preserves_ordered_elseif_clauses() {
+        let if_keyword = Token::new(TokenKind::IfKeyword, SourceSpan::new(0, 2));
+        let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(3, 5));
+        let then_left_brace = Token::new(TokenKind::LeftBrace, SourceSpan::new(9, 1));
+        let then_right_brace = Token::new(TokenKind::RightBrace, SourceSpan::new(10, 1));
+
+        let first_elseif_keyword = Token::new(TokenKind::ElseIfKeyword, SourceSpan::new(12, 6));
+        let first_condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(19, 5));
+        let first_left_brace = Token::new(TokenKind::LeftBrace, SourceSpan::new(25, 1));
+        let first_right_brace = Token::new(TokenKind::RightBrace, SourceSpan::new(26, 1));
+
+        let second_elseif_keyword = Token::new(TokenKind::ElseIfKeyword, SourceSpan::new(28, 6));
+        let second_condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(35, 6));
+        let second_left_brace = Token::new(TokenKind::LeftBrace, SourceSpan::new(42, 1));
+        let second_right_brace = Token::new(TokenKind::RightBrace, SourceSpan::new(43, 1));
+
+        let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+        let then_block = BlockSyntax::new(then_left_brace, Vec::new(), then_right_brace);
+
+        let first_elseif_clause = ElseIfClauseSyntax::new(
+            first_elseif_keyword,
+            ExpressionSyntax::Name(NameExpressionSyntax::new(first_condition_token)),
+            BlockSyntax::new(first_left_brace, Vec::new(), first_right_brace),
+        );
+
+        let second_elseif_clause = ElseIfClauseSyntax::new(
+            second_elseif_keyword,
+            ExpressionSyntax::Name(NameExpressionSyntax::new(second_condition_token)),
+            BlockSyntax::new(second_left_brace, Vec::new(), second_right_brace),
+        );
+
+        let conditional_statement = ConditionalStatementSyntax::new(
+            if_keyword,
+            condition,
+            then_block,
+            vec![first_elseif_clause.clone(), second_elseif_clause.clone()],
+            None,
+        );
+
+        assert_eq!(
+            conditional_statement.elseif_clauses(),
+            &[first_elseif_clause, second_elseif_clause]
+        );
+    }
+
+    #[test]
     fn conditional_statement_preserves_if_condition_blocks_and_else_clause() {
         let if_keyword = Token::new(TokenKind::IfKeyword, SourceSpan::new(0, 2));
         let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(3, 5));
@@ -1103,12 +1203,14 @@ mod tests {
             if_keyword,
             condition.clone(),
             then_block.clone(),
+            Vec::new(),
             Some(else_clause.clone()),
         );
 
         assert_eq!(conditional_statement.if_keyword(), if_keyword);
         assert_eq!(conditional_statement.condition(), &condition);
         assert_eq!(conditional_statement.then_block(), &then_block);
+        assert!(conditional_statement.elseif_clauses().is_empty());
         assert_eq!(conditional_statement.else_clause(), Some(&else_clause));
     }
 
@@ -1123,7 +1225,7 @@ mod tests {
         let then_block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
 
         let conditional_statement =
-            ConditionalStatementSyntax::new(if_keyword, condition, then_block, None);
+            ConditionalStatementSyntax::new(if_keyword, condition, then_block, Vec::new(), None);
 
         let statement = StatementSyntax::Conditional(conditional_statement.clone());
 
