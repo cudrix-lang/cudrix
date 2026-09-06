@@ -5,10 +5,10 @@ use crate::source::SourceText;
 use crate::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
     CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
-    ElseClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax, IndexExpressionSyntax,
-    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
-    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
-    StatementSyntax, UnaryExpressionSyntax,
+    ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
+    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
+    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
+    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
 };
 
 pub struct Parser<'source> {
@@ -74,6 +74,18 @@ impl<'source> Parser<'source> {
         let condition = self.parse_expression()?;
         let then_block = self.parse_block()?;
 
+        let mut elseif_clauses = Vec::new();
+
+        if self.current_token.kind() == TokenKind::ElseIfKeyword {
+            let elseif_keyword = self.current_token;
+            self.advance();
+
+            let condition = self.parse_expression()?;
+            let block = self.parse_block()?;
+
+            elseif_clauses.push(ElseIfClauseSyntax::new(elseif_keyword, condition, block));
+        }
+
         let else_clause = if self.current_token.kind() == TokenKind::ElseKeyword {
             let else_keyword = self.current_token;
             self.advance();
@@ -90,7 +102,7 @@ impl<'source> Parser<'source> {
                 if_keyword,
                 condition,
                 then_block,
-                Vec::new(),
+                elseif_clauses,
                 else_clause,
             ),
         ))
@@ -2930,6 +2942,48 @@ mod tests {
 
         assert!(conditional_statement.else_clause().is_none());
         assert_eq!(conditional_statement.then_block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_parses_conditional_statement_with_single_elseif() {
+        let source = SourceText::new("if first { answer; } elseif second { fallback; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert_eq!(conditional_statement.then_block().statements().len(), 1);
+        assert_eq!(conditional_statement.elseif_clauses().len(), 1);
+        assert!(conditional_statement.else_clause().is_none());
+
+        let elseif_clause = &conditional_statement.elseif_clauses()[0];
+
+        assert_eq!(
+            elseif_clause.elseif_keyword().kind(),
+            TokenKind::ElseIfKeyword
+        );
+        assert!(matches!(
+            elseif_clause.condition(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(elseif_clause.block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_conditional_statement_advances_past_single_elseif_block() {
+        let source = SourceText::new("if first {} elseif second {} next;");
+        let mut parser = Parser::new(&source);
+
+        parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
     }
 
     #[test]
