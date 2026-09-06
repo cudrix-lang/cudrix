@@ -4,10 +4,10 @@ use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
     CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
-    ElseClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax, IndexExpressionSyntax,
-    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
-    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
-    StatementSyntax, UnaryExpressionSyntax,
+    ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
+    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
+    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
+    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
 };
 
 #[test]
@@ -419,17 +419,46 @@ fn cudrix_exposes_else_clause_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_elseif_clause_syntax() {
+    let elseif_keyword = Token::new(TokenKind::ElseIfKeyword, SourceSpan::new(0, 6));
+    let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 9));
+    let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(17, 1));
+    let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(18, 1));
+
+    let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+    let block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+    let elseif_clause = ElseIfClauseSyntax::new(elseif_keyword, condition, block);
+
+    assert_eq!(elseif_clause.elseif_keyword(), elseif_keyword);
+    assert!(matches!(
+        elseif_clause.condition(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(elseif_clause.block().left_brace_token(), left_brace_token);
+    assert!(elseif_clause.block().statements().is_empty());
+    assert_eq!(elseif_clause.block().right_brace_token(), right_brace_token);
+}
+
+#[test]
 fn cudrix_exposes_conditional_statement_syntax() {
     let if_keyword = Token::new(TokenKind::IfKeyword, SourceSpan::new(0, 2));
     let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(3, 9));
     let then_left_brace = Token::new(TokenKind::LeftBrace, SourceSpan::new(13, 1));
     let then_right_brace = Token::new(TokenKind::RightBrace, SourceSpan::new(14, 1));
-    let else_keyword = Token::new(TokenKind::ElseKeyword, SourceSpan::new(16, 4));
-    let else_left_brace = Token::new(TokenKind::LeftBrace, SourceSpan::new(21, 1));
-    let else_right_brace = Token::new(TokenKind::RightBrace, SourceSpan::new(22, 1));
-
+    let elseif_keyword = Token::new(TokenKind::ElseIfKeyword, SourceSpan::new(16, 6));
+    let elseif_condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(23, 9));
+    let elseif_left_brace = Token::new(TokenKind::LeftBrace, SourceSpan::new(33, 1));
+    let elseif_right_brace = Token::new(TokenKind::RightBrace, SourceSpan::new(34, 1));
+    let else_keyword = Token::new(TokenKind::ElseKeyword, SourceSpan::new(36, 4));
+    let else_left_brace = Token::new(TokenKind::LeftBrace, SourceSpan::new(41, 1));
+    let else_right_brace = Token::new(TokenKind::RightBrace, SourceSpan::new(42, 1));
     let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
     let then_block = BlockSyntax::new(then_left_brace, Vec::new(), then_right_brace);
+    let elseif_condition =
+        ExpressionSyntax::Name(NameExpressionSyntax::new(elseif_condition_token));
+    let elseif_block = BlockSyntax::new(elseif_left_brace, Vec::new(), elseif_right_brace);
+    let elseif_clause = ElseIfClauseSyntax::new(elseif_keyword, elseif_condition, elseif_block);
     let else_block = BlockSyntax::new(else_left_brace, Vec::new(), else_right_brace);
     let else_clause = ElseClauseSyntax::new(else_keyword, else_block);
 
@@ -437,7 +466,7 @@ fn cudrix_exposes_conditional_statement_syntax() {
         if_keyword,
         condition,
         then_block,
-        Vec::new(),
+        vec![elseif_clause],
         Some(else_clause),
     );
 
@@ -447,6 +476,16 @@ fn cudrix_exposes_conditional_statement_syntax() {
         ExpressionSyntax::Name(_)
     ));
     assert!(conditional_statement.then_block().statements().is_empty());
+    assert_eq!(conditional_statement.elseif_clauses().len(), 1);
+
+    let elseif_clause = &conditional_statement.elseif_clauses()[0];
+
+    assert_eq!(elseif_clause.elseif_keyword(), elseif_keyword);
+    assert!(matches!(
+        elseif_clause.condition(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert!(elseif_clause.block().statements().is_empty());
 
     let else_clause = conditional_statement
         .else_clause()
@@ -702,7 +741,9 @@ fn cudrix_parser_exposes_statement_parsing() {
 
 #[test]
 fn cudrix_parser_exposes_conditional_statement_parsing() {
-    let source = SourceText::new("if condition { answer; } else { fallback; }");
+    let source = SourceText::new(
+        "if condition { answer; } elseif alternative { backup; } else { fallback; }",
+    );
     let mut parser = Parser::new(&source);
 
     let statement = parser
@@ -722,6 +763,20 @@ fn cudrix_parser_exposes_conditional_statement_parsing() {
         ExpressionSyntax::Name(_)
     ));
     assert_eq!(conditional_statement.then_block().statements().len(), 1);
+
+    assert_eq!(conditional_statement.elseif_clauses().len(), 1);
+
+    let elseif_clause = &conditional_statement.elseif_clauses()[0];
+
+    assert_eq!(
+        elseif_clause.elseif_keyword().kind(),
+        TokenKind::ElseIfKeyword
+    );
+    assert!(matches!(
+        elseif_clause.condition(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(elseif_clause.block().statements().len(), 1);
 
     let else_clause = conditional_statement
         .else_clause()
