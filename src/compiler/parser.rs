@@ -3063,6 +3063,110 @@ mod tests {
     }
 
     #[test]
+    fn parser_elseif_clause_accepts_full_expression_condition() {
+        let source = SourceText::new("if first {} elseif score > 90 && ready { answer; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        let elseif_clause = &conditional_statement.elseif_clauses()[0];
+
+        assert!(matches!(
+            elseif_clause.condition(),
+            ExpressionSyntax::Binary(_)
+        ));
+        assert_eq!(elseif_clause.block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_elseif_clause_accepts_empty_block() {
+        let source = SourceText::new("if first {} elseif second {}");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        let elseif_clause = &conditional_statement.elseif_clauses()[0];
+
+        assert!(elseif_clause.block().statements().is_empty());
+    }
+
+    #[test]
+    fn parser_elseif_clause_skips_trivia() {
+        let source = SourceText::new(
+            "if first {} /* elseif */ elseif /* condition */ second /* block */ { answer; }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert_eq!(conditional_statement.elseif_clauses().len(), 1);
+
+        let elseif_clause = &conditional_statement.elseif_clauses()[0];
+
+        assert!(matches!(
+            elseif_clause.condition(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(elseif_clause.block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_elseif_clause_supports_nested_conditional_statement() {
+        let source = SourceText::new("if first {} elseif second { if nested { answer; } }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        let elseif_clause = &conditional_statement.elseif_clauses()[0];
+
+        assert_eq!(elseif_clause.block().statements().len(), 1);
+        assert!(matches!(
+            &elseif_clause.block().statements()[0],
+            StatementSyntax::Conditional(_)
+        ));
+    }
+
+    #[test]
+    fn parser_conditional_statement_returns_none_when_elseif_has_no_condition() {
+        let source = SourceText::new("if first {} elseif");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+    }
+
+    #[test]
+    fn parser_conditional_statement_returns_none_when_elseif_has_no_block() {
+        let source = SourceText::new("if first {} elseif second");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+    }
+
+    #[test]
     fn parser_conditional_statement_accepts_full_expression_condition() {
         let source = SourceText::new("if score > 90 && ready { answer; }");
         let mut parser = Parser::new(&source);
