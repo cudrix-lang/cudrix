@@ -8,7 +8,7 @@ use cudrix::syntax::{
     ForStatementSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
     ObjectMemberSyntax, ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
-    WhileStatementSyntax,
+    VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 #[test]
@@ -574,6 +574,31 @@ fn cudrix_exposes_for_statement_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_variable_declaration_statement_syntax() {
+    let declaration_keyword = Token::new(TokenKind::LetKeyword, SourceSpan::new(0, 3));
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 5));
+    let assignment_token = Token::new(TokenKind::Assignment, SourceSpan::new(10, 1));
+    let initializer_token = Token::new(TokenKind::Number, SourceSpan::new(12, 1));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(13, 1));
+
+    let initializer = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(initializer_token));
+
+    let declaration = VariableDeclarationStatementSyntax::new(
+        declaration_keyword,
+        identifier_token,
+        assignment_token,
+        initializer.clone(),
+        semicolon_token,
+    );
+
+    assert_eq!(declaration.declaration_keyword(), declaration_keyword);
+    assert_eq!(declaration.identifier_token(), identifier_token);
+    assert_eq!(declaration.assignment_token(), assignment_token);
+    assert_eq!(declaration.initializer(), &initializer);
+    assert_eq!(declaration.semicolon_token(), semicolon_token);
+}
+
+#[test]
 fn cudrix_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -926,6 +951,54 @@ fn cudrix_parser_exposes_for_statement_parsing() {
     ));
     assert!(for_statement.block().statements().is_empty());
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_variable_declaration_statement_parsing() {
+    let source = SourceText::new("let count = 0;");
+    let mut parser = Parser::new(&source);
+
+    let statement = parser.parse_statement().unwrap();
+
+    let StatementSyntax::VariableDeclaration(declaration) = statement else {
+        panic!("expected variable declaration statement");
+    };
+
+    assert_eq!(
+        declaration.declaration_keyword().kind(),
+        TokenKind::LetKeyword
+    );
+    assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+    assert_eq!(declaration.assignment_token().kind(), TokenKind::Assignment);
+    assert!(matches!(
+        declaration.initializer(),
+        ExpressionSyntax::Literal(_)
+    ));
+    assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_exposes_variable_declaration_statement_variant() {
+    let declaration_keyword = Token::new(TokenKind::VarKeyword, SourceSpan::new(0, 3));
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 5));
+    let assignment_token = Token::new(TokenKind::Assignment, SourceSpan::new(10, 1));
+    let initializer_token = Token::new(TokenKind::Number, SourceSpan::new(12, 2));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(14, 1));
+
+    let initializer = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(initializer_token));
+
+    let declaration = VariableDeclarationStatementSyntax::new(
+        declaration_keyword,
+        identifier_token,
+        assignment_token,
+        initializer,
+        semicolon_token,
+    );
+
+    let statement = StatementSyntax::VariableDeclaration(declaration.clone());
+
+    assert_eq!(statement, StatementSyntax::VariableDeclaration(declaration));
 }
 
 #[test]
