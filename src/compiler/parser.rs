@@ -4136,6 +4136,81 @@ mod tests {
     }
 
     #[test]
+    fn parser_variable_declaration_returns_none_without_identifier() {
+        let source = SourceText::new("let");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_var_declaration_returns_none_without_identifier() {
+        let source = SourceText::new("var");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_variable_declaration_returns_none_when_assignment_follows_keyword() {
+        let source = SourceText::new("let = 10;");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Assignment);
+    }
+
+    #[test]
+    fn parser_variable_declaration_returns_none_without_assignment_operator() {
+        let source = SourceText::new("let value 10;");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Number);
+    }
+
+    #[test]
+    fn parser_variable_declaration_returns_none_without_initializer() {
+        let source = SourceText::new("let value = ;");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_variable_declaration_returns_none_without_semicolon() {
+        let source = SourceText::new("let value = 10");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_variable_declaration_returns_none_for_incomplete_binary_initializer() {
+        let source = SourceText::new("let value = first + ;");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_variable_declaration_skips_trivia() {
+        let source =
+            SourceText::new("let /* declaration */ value\n=\n/* initializer */ 10 /* end */ ;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().unwrap();
+
+        assert!(matches!(statement, StatementSyntax::VariableDeclaration(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_block_accepts_variable_declaration_statement() {
         let source = SourceText::new("{ let count = 0; }");
         let mut parser = Parser::new(&source);
