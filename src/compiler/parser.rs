@@ -4080,4 +4080,111 @@ mod tests {
         assert!(matches!(statement, StatementSyntax::For(_)));
         assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
     }
+
+    #[test]
+    fn parser_variable_declaration_accepts_binary_expression_initializer() {
+        let source = SourceText::new("let total = first + second * third;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().unwrap();
+
+        let StatementSyntax::VariableDeclaration(declaration) = statement else {
+            panic!("expected variable declaration statement");
+        };
+
+        assert!(matches!(
+            declaration.initializer(),
+            ExpressionSyntax::Binary(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_variable_declaration_accepts_call_expression_initializer() {
+        let source = SourceText::new("let result = process(value);");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().unwrap();
+
+        let StatementSyntax::VariableDeclaration(declaration) = statement else {
+            panic!("expected variable declaration statement");
+        };
+
+        assert!(matches!(
+            declaration.initializer(),
+            ExpressionSyntax::Call(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_variable_declaration_accepts_conditional_expression_initializer() {
+        let source = SourceText::new("var selected = ready ? first : second;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().unwrap();
+
+        let StatementSyntax::VariableDeclaration(declaration) = statement else {
+            panic!("expected variable declaration statement");
+        };
+
+        assert!(matches!(
+            declaration.initializer(),
+            ExpressionSyntax::Conditional(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_block_accepts_variable_declaration_statement() {
+        let source = SourceText::new("{ let count = 0; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().unwrap();
+
+        assert_eq!(block.statements().len(), 1);
+        assert!(matches!(
+            block.statements()[0],
+            StatementSyntax::VariableDeclaration(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_block_accepts_multiple_variable_declarations_and_expression_statement() {
+        let source = SourceText::new("{ let first = 1; var second = 2; first = second; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().unwrap();
+
+        assert_eq!(block.statements().len(), 3);
+        assert!(matches!(
+            block.statements()[0],
+            StatementSyntax::VariableDeclaration(_)
+        ));
+        assert!(matches!(
+            block.statements()[1],
+            StatementSyntax::VariableDeclaration(_)
+        ));
+        assert!(matches!(
+            block.statements()[2],
+            StatementSyntax::Expression(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_control_flow_blocks_accept_variable_declaration_statements() {
+        let source =
+            SourceText::new("if ready { let first = 1; } while active { var second = 2; }");
+        let mut parser = Parser::new(&source);
+
+        let first_statement = parser.parse_statement().unwrap();
+        assert!(matches!(first_statement, StatementSyntax::Conditional(_)));
+
+        let second_statement = parser.parse_statement().unwrap();
+        assert!(matches!(second_statement, StatementSyntax::While(_)));
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
 }
