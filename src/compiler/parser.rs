@@ -8,7 +8,7 @@ use crate::syntax::{
     ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
     IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
     NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
-    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
+    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax, WhileStatementSyntax,
 };
 
 pub struct Parser<'source> {
@@ -59,6 +59,7 @@ impl<'source> Parser<'source> {
     pub fn parse_statement(&mut self) -> Option<StatementSyntax> {
         match self.current_token.kind() {
             TokenKind::IfKeyword => self.parse_conditional_statement(),
+            TokenKind::WhileKeyword => self.parse_while_statement(),
             _ => self.parse_expression_statement(),
         }
     }
@@ -106,6 +107,24 @@ impl<'source> Parser<'source> {
                 else_clause,
             ),
         ))
+    }
+
+    fn parse_while_statement(&mut self) -> Option<StatementSyntax> {
+        if self.current_token.kind() != TokenKind::WhileKeyword {
+            return None;
+        }
+
+        let while_keyword = self.current_token;
+        self.advance();
+
+        let condition = self.parse_expression()?;
+        let block = self.parse_block()?;
+
+        Some(StatementSyntax::While(WhileStatementSyntax::new(
+            while_keyword,
+            condition,
+            block,
+        )))
     }
 
     fn parse_expression_statement(&mut self) -> Option<StatementSyntax> {
@@ -3424,5 +3443,59 @@ mod tests {
             &block.statements()[1],
             StatementSyntax::Expression(_)
         ));
+    }
+
+    #[test]
+    fn parser_parses_while_statement() {
+        let source = SourceText::new("while ready { process(); }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected while statement");
+
+        let StatementSyntax::While(while_statement) = statement else {
+            panic!("expected while statement");
+        };
+
+        assert_eq!(
+            while_statement.while_keyword().kind(),
+            TokenKind::WhileKeyword
+        );
+        assert!(matches!(
+            while_statement.condition(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(while_statement.block().statements().len(), 1);
+        assert!(matches!(
+            &while_statement.block().statements()[0],
+            StatementSyntax::Expression(_)
+        ));
+    }
+
+    #[test]
+    fn parser_while_statement_accepts_empty_block() {
+        let source = SourceText::new("while ready {}");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected while statement");
+
+        let StatementSyntax::While(while_statement) = statement else {
+            panic!("expected while statement");
+        };
+
+        assert!(matches!(
+            while_statement.condition(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert!(while_statement.block().statements().is_empty());
+    }
+
+    #[test]
+    fn parser_while_statement_advances_past_block() {
+        let source = SourceText::new("while ready {} next;");
+        let mut parser = Parser::new(&source);
+
+        parser.parse_statement().expect("expected while statement");
+
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
     }
 }
