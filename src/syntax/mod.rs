@@ -538,9 +538,39 @@ impl ConditionalStatementSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WhileStatementSyntax {
+    while_keyword: Token,
+    condition: ExpressionSyntax,
+    block: BlockSyntax,
+}
+
+impl WhileStatementSyntax {
+    pub fn new(while_keyword: Token, condition: ExpressionSyntax, block: BlockSyntax) -> Self {
+        Self {
+            while_keyword,
+            condition,
+            block,
+        }
+    }
+
+    pub fn while_keyword(&self) -> Token {
+        self.while_keyword
+    }
+
+    pub fn condition(&self) -> &ExpressionSyntax {
+        &self.condition
+    }
+
+    pub fn block(&self) -> &BlockSyntax {
+        &self.block
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementSyntax {
     Expression(ExpressionStatementSyntax),
     Conditional(ConditionalStatementSyntax),
+    While(WhileStatementSyntax),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1233,5 +1263,40 @@ mod tests {
             statement,
             StatementSyntax::Conditional(conditional_statement)
         );
+    }
+
+    #[test]
+    fn while_statement_preserves_keyword_condition_and_block() {
+        let while_keyword = Token::new(TokenKind::WhileKeyword, SourceSpan::new(0, 5));
+        let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(6, 7));
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(14, 1));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(15, 1));
+
+        let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+        let block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+        let while_statement =
+            WhileStatementSyntax::new(while_keyword, condition.clone(), block.clone());
+
+        assert_eq!(while_statement.while_keyword(), while_keyword);
+        assert_eq!(while_statement.condition(), &condition);
+        assert_eq!(while_statement.block(), &block);
+    }
+
+    #[test]
+    fn statement_syntax_preserves_while_statement() {
+        let while_keyword = Token::new(TokenKind::WhileKeyword, SourceSpan::new(0, 5));
+        let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(6, 7));
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(14, 1));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(15, 1));
+
+        let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+        let block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+        let while_statement = WhileStatementSyntax::new(while_keyword, condition, block);
+
+        let statement = StatementSyntax::While(while_statement.clone());
+
+        assert_eq!(statement, StatementSyntax::While(while_statement));
     }
 }
