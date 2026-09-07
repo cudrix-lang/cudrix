@@ -3892,4 +3892,93 @@ mod tests {
         assert_eq!(for_statement.block().statements().len(), 1);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
+
+    #[test]
+    fn parser_for_statement_returns_none_without_initializer() {
+        let source = SourceText::new("for");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_for_statement_returns_none_for_missing_initializer_before_semicolon() {
+        let source = SourceText::new("for ; i < 10; i = i + 1 {}");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_for_statement_returns_none_without_first_semicolon() {
+        let source = SourceText::new("for i = 0 i < 10; i = i + 1 {}");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
+    }
+
+    #[test]
+    fn parser_for_statement_returns_none_without_condition() {
+        let source = SourceText::new("for i = 0; ; i = i + 1 {}");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_for_statement_returns_none_without_second_semicolon() {
+        let source = SourceText::new("for i = 0; i < 10 i = i + 1 {}");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
+    }
+
+    #[test]
+    fn parser_for_statement_returns_none_without_update() {
+        let source = SourceText::new("for i = 0; i < 10; {}");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_for_statement_returns_none_without_block() {
+        let source = SourceText::new("for i = 0; i < 10; i = i + 1");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_for_statement_returns_none_for_incomplete_block() {
+        let source = SourceText::new(
+            "for i = 0; i < 10; i = i + 1 {
+                process(i);
+            ",
+        );
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_for_statement_advances_past_block() {
+        let source = SourceText::new("for i = 0; i < 10; i = i + 1 {} next;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("for statement should parse");
+
+        assert!(matches!(statement, StatementSyntax::For(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
+    }
 }
