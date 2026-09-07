@@ -6,9 +6,10 @@ use crate::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
     CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
     ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
-    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
-    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax, WhileStatementSyntax,
+    ForStatementSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
+    ObjectMemberSyntax, ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
+    WhileStatementSyntax,
 };
 
 pub struct Parser<'source> {
@@ -60,6 +61,7 @@ impl<'source> Parser<'source> {
         match self.current_token.kind() {
             TokenKind::IfKeyword => self.parse_conditional_statement(),
             TokenKind::WhileKeyword => self.parse_while_statement(),
+            TokenKind::ForKeyword => self.parse_for_statement(),
             _ => self.parse_expression_statement(),
         }
     }
@@ -123,6 +125,46 @@ impl<'source> Parser<'source> {
         Some(StatementSyntax::While(WhileStatementSyntax::new(
             while_keyword,
             condition,
+            block,
+        )))
+    }
+
+    fn parse_for_statement(&mut self) -> Option<StatementSyntax> {
+        if self.current_token.kind() != TokenKind::ForKeyword {
+            return None;
+        }
+
+        let for_keyword = self.current_token;
+        self.advance();
+
+        let initializer = self.parse_expression()?;
+
+        if self.current_token.kind() != TokenKind::Semicolon {
+            return None;
+        }
+
+        let first_semicolon_token = self.current_token;
+        self.advance();
+
+        let condition = self.parse_expression()?;
+
+        if self.current_token.kind() != TokenKind::Semicolon {
+            return None;
+        }
+
+        let second_semicolon_token = self.current_token;
+        self.advance();
+
+        let update = self.parse_expression()?;
+        let block = self.parse_block()?;
+
+        Some(StatementSyntax::For(ForStatementSyntax::new(
+            for_keyword,
+            initializer,
+            first_semicolon_token,
+            condition,
+            second_semicolon_token,
+            update,
             block,
         )))
     }
@@ -3658,6 +3700,44 @@ mod tests {
         let mut parser = Parser::new(&source);
 
         assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_for_statement() {
+        let source = SourceText::new("for i = 0; i < 10; i = i + 1 {}");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("for statement should parse");
+
+        let StatementSyntax::For(for_statement) = statement else {
+            panic!("expected for statement");
+        };
+
+        assert_eq!(for_statement.for_keyword().kind(), TokenKind::ForKeyword);
+        assert!(matches!(
+            for_statement.initializer(),
+            ExpressionSyntax::Assignment(_)
+        ));
+        assert_eq!(
+            for_statement.first_semicolon_token().kind(),
+            TokenKind::Semicolon
+        );
+        assert!(matches!(
+            for_statement.condition(),
+            ExpressionSyntax::Binary(_)
+        ));
+        assert_eq!(
+            for_statement.second_semicolon_token().kind(),
+            TokenKind::Semicolon
+        );
+        assert!(matches!(
+            for_statement.update(),
+            ExpressionSyntax::Assignment(_)
+        ));
+        assert!(for_statement.block().statements().is_empty());
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 }
