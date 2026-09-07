@@ -3498,4 +3498,110 @@ mod tests {
 
         assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
     }
+
+    #[test]
+    fn parser_while_statement_accepts_full_expression_condition() {
+        let source = SourceText::new("while ready && count < limit { process(); }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected while statement");
+
+        let StatementSyntax::While(while_statement) = statement else {
+            panic!("expected while statement");
+        };
+
+        let ExpressionSyntax::Binary(logical_and) = while_statement.condition() else {
+            panic!("expected logical-and condition");
+        };
+
+        assert_eq!(logical_and.operator_token().kind(), TokenKind::LogicalAnd);
+        assert!(matches!(logical_and.left(), ExpressionSyntax::Name(_)));
+
+        let ExpressionSyntax::Binary(comparison) = logical_and.right() else {
+            panic!("expected comparison on right side");
+        };
+
+        assert_eq!(comparison.operator_token().kind(), TokenKind::LessThan);
+        assert_eq!(while_statement.block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_while_statement_supports_nested_while_statement() {
+        let source = SourceText::new("while outer { while inner { process(); } }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected outer while statement");
+
+        let StatementSyntax::While(outer_while) = statement else {
+            panic!("expected outer while statement");
+        };
+
+        assert_eq!(outer_while.block().statements().len(), 1);
+
+        let StatementSyntax::While(inner_while) = &outer_while.block().statements()[0] else {
+            panic!("expected nested while statement");
+        };
+
+        assert!(matches!(inner_while.condition(), ExpressionSyntax::Name(_)));
+        assert_eq!(inner_while.block().statements().len(), 1);
+    }
+
+    #[test]
+    fn parser_while_statement_supports_conditional_statement_in_block() {
+        let source = SourceText::new("while running { if ready { process(); } }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected while statement");
+
+        let StatementSyntax::While(while_statement) = statement else {
+            panic!("expected while statement");
+        };
+
+        assert_eq!(while_statement.block().statements().len(), 1);
+        assert!(matches!(
+            &while_statement.block().statements()[0],
+            StatementSyntax::Conditional(_)
+        ));
+    }
+
+    #[test]
+    fn parser_conditional_statement_supports_while_statement_in_then_block() {
+        let source = SourceText::new("if enabled { while running { process(); } }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional_statement) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert_eq!(conditional_statement.then_block().statements().len(), 1);
+        assert!(matches!(
+            &conditional_statement.then_block().statements()[0],
+            StatementSyntax::While(_)
+        ));
+    }
+
+    #[test]
+    fn parser_block_accepts_while_conditional_and_expression_statements() {
+        let source = SourceText::new("{ while running {} if ready { process(); } fallback; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.statements().len(), 3);
+        assert!(matches!(&block.statements()[0], StatementSyntax::While(_)));
+        assert!(matches!(
+            &block.statements()[1],
+            StatementSyntax::Conditional(_)
+        ));
+        assert!(matches!(
+            &block.statements()[2],
+            StatementSyntax::Expression(_)
+        ));
+    }
 }
