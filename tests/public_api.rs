@@ -7,7 +7,7 @@ use cudrix::syntax::{
     ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
     IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
     NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
-    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
+    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax, WhileStatementSyntax,
 };
 
 #[test]
@@ -496,6 +496,35 @@ fn cudrix_exposes_conditional_statement_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_while_statement_syntax() {
+    let while_keyword = Token::new(TokenKind::WhileKeyword, SourceSpan::new(0, 5));
+    let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(6, 7));
+    let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(14, 1));
+    let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(15, 1));
+
+    let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+    let block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+    let while_statement = WhileStatementSyntax::new(while_keyword, condition, block);
+
+    assert_eq!(while_statement.while_keyword(), while_keyword);
+    assert!(matches!(
+        while_statement.condition(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(while_statement.block().left_brace_token(), left_brace_token);
+    assert!(while_statement.block().statements().is_empty());
+    assert_eq!(
+        while_statement.block().right_brace_token(),
+        right_brace_token
+    );
+
+    let statement = StatementSyntax::While(while_statement.clone());
+
+    assert_eq!(statement, StatementSyntax::While(while_statement));
+}
+
+#[test]
 fn cudrix_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -784,6 +813,31 @@ fn cudrix_parser_exposes_conditional_statement_parsing() {
 
     assert_eq!(else_clause.else_keyword().kind(), TokenKind::ElseKeyword);
     assert_eq!(else_clause.block().statements().len(), 1);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_while_statement_parsing() {
+    let source = SourceText::new("while running { process(); }");
+    let mut parser = Parser::new(&source);
+
+    let statement = parser
+        .parse_statement()
+        .expect("while statement should parse through the public API");
+
+    let StatementSyntax::While(while_statement) = statement else {
+        panic!("expected while statement");
+    };
+
+    assert_eq!(
+        while_statement.while_keyword().kind(),
+        TokenKind::WhileKeyword
+    );
+    assert!(matches!(
+        while_statement.condition(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(while_statement.block().statements().len(), 1);
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
 
