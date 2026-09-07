@@ -5,9 +5,10 @@ use cudrix::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
     CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
     ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
-    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
-    ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax, WhileStatementSyntax,
+    ForStatementSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
+    ObjectMemberSyntax, ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
+    WhileStatementSyntax,
 };
 
 #[test]
@@ -525,6 +526,54 @@ fn cudrix_exposes_while_statement_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_for_statement_syntax() {
+    let for_keyword = Token::new(TokenKind::ForKeyword, SourceSpan::new(0, 3));
+    let initializer = ExpressionSyntax::Name(NameExpressionSyntax::new(Token::new(
+        TokenKind::Identifier,
+        SourceSpan::new(4, 1),
+    )));
+    let first_semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(5, 1));
+    let condition = ExpressionSyntax::Literal(LiteralExpressionSyntax::new(Token::new(
+        TokenKind::TrueKeyword,
+        SourceSpan::new(7, 4),
+    )));
+    let second_semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(11, 1));
+    let update = ExpressionSyntax::Name(NameExpressionSyntax::new(Token::new(
+        TokenKind::Identifier,
+        SourceSpan::new(13, 1),
+    )));
+    let block = BlockSyntax::new(
+        Token::new(TokenKind::LeftBrace, SourceSpan::new(15, 1)),
+        Vec::new(),
+        Token::new(TokenKind::RightBrace, SourceSpan::new(16, 1)),
+    );
+
+    let statement = ForStatementSyntax::new(
+        for_keyword,
+        initializer,
+        first_semicolon_token,
+        condition,
+        second_semicolon_token,
+        update,
+        block,
+    );
+
+    assert_eq!(statement.for_keyword(), for_keyword);
+    assert!(matches!(statement.initializer(), ExpressionSyntax::Name(_)));
+    assert_eq!(statement.first_semicolon_token(), first_semicolon_token);
+    assert!(matches!(
+        statement.condition(),
+        ExpressionSyntax::Literal(_)
+    ));
+    assert_eq!(statement.second_semicolon_token(), second_semicolon_token);
+    assert!(matches!(statement.update(), ExpressionSyntax::Name(_)));
+    assert!(statement.block().statements().is_empty());
+
+    let statement = StatementSyntax::For(statement);
+    assert!(matches!(statement, StatementSyntax::For(_)));
+}
+
+#[test]
 fn cudrix_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -838,6 +887,44 @@ fn cudrix_parser_exposes_while_statement_parsing() {
         ExpressionSyntax::Name(_)
     ));
     assert_eq!(while_statement.block().statements().len(), 1);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_for_statement_parsing() {
+    let source = SourceText::new("for i = 0; i < 10; i = i + 1 {}");
+    let mut parser = Parser::new(&source);
+
+    let statement = parser
+        .parse_statement()
+        .expect("for statement should parse through public API");
+
+    let StatementSyntax::For(for_statement) = statement else {
+        panic!("expected for statement");
+    };
+
+    assert_eq!(for_statement.for_keyword().kind(), TokenKind::ForKeyword);
+    assert!(matches!(
+        for_statement.initializer(),
+        ExpressionSyntax::Assignment(_)
+    ));
+    assert_eq!(
+        for_statement.first_semicolon_token().kind(),
+        TokenKind::Semicolon
+    );
+    assert!(matches!(
+        for_statement.condition(),
+        ExpressionSyntax::Binary(_)
+    ));
+    assert_eq!(
+        for_statement.second_semicolon_token().kind(),
+        TokenKind::Semicolon
+    );
+    assert!(matches!(
+        for_statement.update(),
+        ExpressionSyntax::Assignment(_)
+    ));
+    assert!(for_statement.block().statements().is_empty());
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
 
