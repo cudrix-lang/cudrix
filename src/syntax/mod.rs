@@ -439,6 +439,53 @@ impl ExpressionStatementSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VariableDeclarationStatementSyntax {
+    declaration_keyword: Token,
+    identifier_token: Token,
+    assignment_token: Token,
+    initializer: ExpressionSyntax,
+    semicolon_token: Token,
+}
+
+impl VariableDeclarationStatementSyntax {
+    pub fn new(
+        declaration_keyword: Token,
+        identifier_token: Token,
+        assignment_token: Token,
+        initializer: ExpressionSyntax,
+        semicolon_token: Token,
+    ) -> Self {
+        Self {
+            declaration_keyword,
+            identifier_token,
+            assignment_token,
+            initializer,
+            semicolon_token,
+        }
+    }
+
+    pub fn declaration_keyword(&self) -> Token {
+        self.declaration_keyword
+    }
+
+    pub fn identifier_token(&self) -> Token {
+        self.identifier_token
+    }
+
+    pub fn assignment_token(&self) -> Token {
+        self.assignment_token
+    }
+
+    pub fn initializer(&self) -> &ExpressionSyntax {
+        &self.initializer
+    }
+
+    pub fn semicolon_token(&self) -> Token {
+        self.semicolon_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElseIfClauseSyntax {
     elseif_keyword: Token,
     condition: ExpressionSyntax,
@@ -630,6 +677,7 @@ impl ForStatementSyntax {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementSyntax {
     Expression(ExpressionStatementSyntax),
+    VariableDeclaration(VariableDeclarationStatementSyntax),
     Conditional(ConditionalStatementSyntax),
     While(WhileStatementSyntax),
     For(ForStatementSyntax),
@@ -1162,6 +1210,56 @@ mod tests {
         let statement = StatementSyntax::Expression(expression_statement.clone());
 
         assert_eq!(statement, StatementSyntax::Expression(expression_statement));
+    }
+
+    #[test]
+    fn variable_declaration_statement_preserves_declaration_tokens_and_initializer() {
+        let declaration_keyword = Token::new(TokenKind::LetKeyword, SourceSpan::new(0, 3));
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 5));
+        let assignment_token = Token::new(TokenKind::Assignment, SourceSpan::new(10, 1));
+        let initializer_token = Token::new(TokenKind::Number, SourceSpan::new(12, 1));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(13, 1));
+
+        let initializer =
+            ExpressionSyntax::Literal(LiteralExpressionSyntax::new(initializer_token));
+
+        let declaration = VariableDeclarationStatementSyntax::new(
+            declaration_keyword,
+            identifier_token,
+            assignment_token,
+            initializer.clone(),
+            semicolon_token,
+        );
+
+        assert_eq!(declaration.declaration_keyword(), declaration_keyword);
+        assert_eq!(declaration.identifier_token(), identifier_token);
+        assert_eq!(declaration.assignment_token(), assignment_token);
+        assert_eq!(declaration.initializer(), &initializer);
+        assert_eq!(declaration.semicolon_token(), semicolon_token);
+    }
+
+    #[test]
+    fn statement_syntax_preserves_variable_declaration_statement() {
+        let declaration_keyword = Token::new(TokenKind::VarKeyword, SourceSpan::new(0, 3));
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 5));
+        let assignment_token = Token::new(TokenKind::Assignment, SourceSpan::new(10, 1));
+        let initializer_token = Token::new(TokenKind::Number, SourceSpan::new(12, 2));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(14, 1));
+
+        let initializer =
+            ExpressionSyntax::Literal(LiteralExpressionSyntax::new(initializer_token));
+
+        let declaration = VariableDeclarationStatementSyntax::new(
+            declaration_keyword,
+            identifier_token,
+            assignment_token,
+            initializer,
+            semicolon_token,
+        );
+
+        let statement = StatementSyntax::VariableDeclaration(declaration.clone());
+
+        assert_eq!(statement, StatementSyntax::VariableDeclaration(declaration));
     }
 
     #[test]
