@@ -3604,4 +3604,60 @@ mod tests {
             StatementSyntax::Expression(_)
         ));
     }
+
+    #[test]
+    fn parser_while_statement_skips_trivia() {
+        let source =
+            SourceText::new("while /* condition */ ready /* block */ { /* body */ process(); }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected while statement");
+
+        let StatementSyntax::While(while_statement) = statement else {
+            panic!("expected while statement");
+        };
+
+        assert!(matches!(
+            while_statement.condition(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(while_statement.block().statements().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_while_statement_returns_none_without_condition() {
+        let source = SourceText::new("while");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_while_statement_returns_none_without_block() {
+        let source = SourceText::new("while ready");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_while_statement_returns_none_for_missing_condition_before_block() {
+        let source = SourceText::new("while {}");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_while_statement_returns_none_for_incomplete_block() {
+        let source = SourceText::new("while ready { process();");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
 }
