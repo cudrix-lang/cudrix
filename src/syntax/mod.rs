@@ -567,10 +567,72 @@ impl WhileStatementSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForStatementSyntax {
+    for_keyword: Token,
+    initializer: ExpressionSyntax,
+    first_semicolon_token: Token,
+    condition: ExpressionSyntax,
+    second_semicolon_token: Token,
+    update: ExpressionSyntax,
+    block: BlockSyntax,
+}
+
+impl ForStatementSyntax {
+    pub fn new(
+        for_keyword: Token,
+        initializer: ExpressionSyntax,
+        first_semicolon_token: Token,
+        condition: ExpressionSyntax,
+        second_semicolon_token: Token,
+        update: ExpressionSyntax,
+        block: BlockSyntax,
+    ) -> Self {
+        Self {
+            for_keyword,
+            initializer,
+            first_semicolon_token,
+            condition,
+            second_semicolon_token,
+            update,
+            block,
+        }
+    }
+
+    pub fn for_keyword(&self) -> Token {
+        self.for_keyword
+    }
+
+    pub fn initializer(&self) -> &ExpressionSyntax {
+        &self.initializer
+    }
+
+    pub fn first_semicolon_token(&self) -> Token {
+        self.first_semicolon_token
+    }
+
+    pub fn condition(&self) -> &ExpressionSyntax {
+        &self.condition
+    }
+
+    pub fn second_semicolon_token(&self) -> Token {
+        self.second_semicolon_token
+    }
+
+    pub fn update(&self) -> &ExpressionSyntax {
+        &self.update
+    }
+
+    pub fn block(&self) -> &BlockSyntax {
+        &self.block
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StatementSyntax {
     Expression(ExpressionStatementSyntax),
     Conditional(ConditionalStatementSyntax),
     While(WhileStatementSyntax),
+    For(ForStatementSyntax),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1298,5 +1360,74 @@ mod tests {
         let statement = StatementSyntax::While(while_statement.clone());
 
         assert_eq!(statement, StatementSyntax::While(while_statement));
+    }
+
+    #[test]
+    fn for_statement_preserves_keyword_expressions_semicolons_and_block() {
+        let for_keyword = Token::new(TokenKind::ForKeyword, SourceSpan::new(0, 3));
+        let initializer_token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 1));
+        let first_semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(9, 1));
+        let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(11, 1));
+        let second_semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(17, 1));
+        let update_token = Token::new(TokenKind::Identifier, SourceSpan::new(19, 1));
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(29, 1));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(30, 1));
+
+        let initializer = ExpressionSyntax::Name(NameExpressionSyntax::new(initializer_token));
+        let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+        let update = ExpressionSyntax::Name(NameExpressionSyntax::new(update_token));
+        let block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+        let for_statement = ForStatementSyntax::new(
+            for_keyword,
+            initializer.clone(),
+            first_semicolon_token,
+            condition.clone(),
+            second_semicolon_token,
+            update.clone(),
+            block.clone(),
+        );
+
+        assert_eq!(for_statement.for_keyword(), for_keyword);
+        assert_eq!(for_statement.initializer(), &initializer);
+        assert_eq!(for_statement.first_semicolon_token(), first_semicolon_token);
+        assert_eq!(for_statement.condition(), &condition);
+        assert_eq!(
+            for_statement.second_semicolon_token(),
+            second_semicolon_token
+        );
+        assert_eq!(for_statement.update(), &update);
+        assert_eq!(for_statement.block(), &block);
+    }
+
+    #[test]
+    fn statement_syntax_preserves_for_statement() {
+        let for_keyword = Token::new(TokenKind::ForKeyword, SourceSpan::new(0, 3));
+        let initializer_token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 1));
+        let first_semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(5, 1));
+        let condition_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 1));
+        let second_semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(8, 1));
+        let update_token = Token::new(TokenKind::Identifier, SourceSpan::new(10, 1));
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(12, 1));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(13, 1));
+
+        let initializer = ExpressionSyntax::Name(NameExpressionSyntax::new(initializer_token));
+        let condition = ExpressionSyntax::Name(NameExpressionSyntax::new(condition_token));
+        let update = ExpressionSyntax::Name(NameExpressionSyntax::new(update_token));
+        let block = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+        let for_statement = ForStatementSyntax::new(
+            for_keyword,
+            initializer,
+            first_semicolon_token,
+            condition,
+            second_semicolon_token,
+            update,
+            block,
+        );
+
+        let statement = StatementSyntax::For(for_statement.clone());
+
+        assert_eq!(statement, StatementSyntax::For(for_statement));
     }
 }
