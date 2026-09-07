@@ -3740,4 +3740,156 @@ mod tests {
         assert!(for_statement.block().statements().is_empty());
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
+
+    #[test]
+    fn parser_for_statement_accepts_multiple_statements_in_block() {
+        let source = SourceText::new("for i = 0; i < 10; i = i + 1 { first(); second(); }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("for statement should parse");
+
+        let StatementSyntax::For(for_statement) = statement else {
+            panic!("expected for statement");
+        };
+
+        assert_eq!(for_statement.block().statements().len(), 2);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_for_statement_supports_nested_for_statement() {
+        let source = SourceText::new(
+            "for i = 0; i < 10; i = i + 1 {
+                for j = 0; j < 10; j = j + 1 {
+                    process(i, j);
+                }
+            }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("outer for statement should parse");
+
+        let StatementSyntax::For(outer_for) = statement else {
+            panic!("expected outer for statement");
+        };
+
+        assert_eq!(outer_for.block().statements().len(), 1);
+        assert!(matches!(
+            outer_for.block().statements()[0],
+            StatementSyntax::For(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_while_statement_supports_for_statement_in_block() {
+        let source = SourceText::new(
+            "while running {
+                for i = 0; i < limit; i = i + 1 {
+                    process(i);
+                }
+            }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("while statement should parse");
+
+        let StatementSyntax::While(while_statement) = statement else {
+            panic!("expected while statement");
+        };
+
+        assert_eq!(while_statement.block().statements().len(), 1);
+        assert!(matches!(
+            while_statement.block().statements()[0],
+            StatementSyntax::For(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_for_statement_supports_conditional_statement_in_block() {
+        let source = SourceText::new(
+            "for i = 0; i < limit; i = i + 1 {
+                if ready {
+                    process(i);
+                }
+            }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("for statement should parse");
+
+        let StatementSyntax::For(for_statement) = statement else {
+            panic!("expected for statement");
+        };
+
+        assert_eq!(for_statement.block().statements().len(), 1);
+        assert!(matches!(
+            for_statement.block().statements()[0],
+            StatementSyntax::Conditional(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_for_statement_accepts_full_expressions() {
+        let source =
+            SourceText::new("for i = start + offset; i < limit && ready; i = i + step * 2 {}");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("for statement should parse");
+
+        let StatementSyntax::For(for_statement) = statement else {
+            panic!("expected for statement");
+        };
+
+        assert!(matches!(
+            for_statement.initializer(),
+            ExpressionSyntax::Assignment(_)
+        ));
+        assert!(matches!(
+            for_statement.condition(),
+            ExpressionSyntax::Binary(_)
+        ));
+        assert!(matches!(
+            for_statement.update(),
+            ExpressionSyntax::Assignment(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_for_statement_skips_trivia() {
+        let source = SourceText::new(
+            "for /* initializer */ i = 0
+                ; // condition follows
+                i < 10
+                ; /* update */ i = i + 1
+                {
+                    process(i);
+                }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("for statement should parse with trivia");
+
+        let StatementSyntax::For(for_statement) = statement else {
+            panic!("expected for statement");
+        };
+
+        assert_eq!(for_statement.block().statements().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
 }
