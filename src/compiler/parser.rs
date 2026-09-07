@@ -9,7 +9,7 @@ use crate::syntax::{
     ForStatementSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
     ObjectMemberSyntax, ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
-    WhileStatementSyntax,
+    VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 pub struct Parser<'source> {
@@ -59,11 +59,60 @@ impl<'source> Parser<'source> {
 
     pub fn parse_statement(&mut self) -> Option<StatementSyntax> {
         match self.current_token.kind() {
+            TokenKind::LetKeyword | TokenKind::VarKeyword => {
+                self.parse_variable_declaration_statement()
+            }
             TokenKind::IfKeyword => self.parse_conditional_statement(),
             TokenKind::WhileKeyword => self.parse_while_statement(),
             TokenKind::ForKeyword => self.parse_for_statement(),
             _ => self.parse_expression_statement(),
         }
+    }
+
+    fn parse_variable_declaration_statement(&mut self) -> Option<StatementSyntax> {
+        let declaration_keyword = self.current_token;
+
+        if !matches!(
+            declaration_keyword.kind(),
+            TokenKind::LetKeyword | TokenKind::VarKeyword
+        ) {
+            return None;
+        }
+
+        self.advance();
+
+        if self.current_token.kind() != TokenKind::Identifier {
+            return None;
+        }
+
+        let identifier_token = self.current_token;
+        self.advance();
+
+        if self.current_token.kind() != TokenKind::Assignment {
+            return None;
+        }
+
+        let assignment_token = self.current_token;
+        self.advance();
+
+        let initializer = self.parse_expression()?;
+
+        if self.current_token.kind() != TokenKind::Semicolon {
+            return None;
+        }
+
+        let semicolon_token = self.current_token;
+        self.advance();
+
+        Some(StatementSyntax::VariableDeclaration(
+            VariableDeclarationStatementSyntax::new(
+                declaration_keyword,
+                identifier_token,
+                assignment_token,
+                initializer,
+                semicolon_token,
+            ),
+        ))
     }
 
     fn parse_conditional_statement(&mut self) -> Option<StatementSyntax> {
@@ -3700,6 +3749,56 @@ mod tests {
         let mut parser = Parser::new(&source);
 
         assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_let_variable_declaration_statement() {
+        let source = SourceText::new("let count = 0;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().unwrap();
+
+        let StatementSyntax::VariableDeclaration(declaration) = statement else {
+            panic!("expected variable declaration statement");
+        };
+
+        assert_eq!(
+            declaration.declaration_keyword().kind(),
+            TokenKind::LetKeyword
+        );
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(declaration.assignment_token().kind(), TokenKind::Assignment);
+        assert!(matches!(
+            declaration.initializer(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_var_variable_declaration_statement() {
+        let source = SourceText::new("var total = 10;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().unwrap();
+
+        let StatementSyntax::VariableDeclaration(declaration) = statement else {
+            panic!("expected variable declaration statement");
+        };
+
+        assert_eq!(
+            declaration.declaration_keyword().kind(),
+            TokenKind::VarKeyword
+        );
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(declaration.assignment_token().kind(), TokenKind::Assignment);
+        assert!(matches!(
+            declaration.initializer(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 
