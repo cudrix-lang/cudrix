@@ -486,6 +486,39 @@ impl VariableDeclarationStatementSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReturnStatementSyntax {
+    return_keyword: Token,
+    expression: ExpressionSyntax,
+    semicolon_token: Token,
+}
+
+impl ReturnStatementSyntax {
+    pub fn new(
+        return_keyword: Token,
+        expression: ExpressionSyntax,
+        semicolon_token: Token,
+    ) -> Self {
+        Self {
+            return_keyword,
+            expression,
+            semicolon_token,
+        }
+    }
+
+    pub fn return_keyword(&self) -> Token {
+        self.return_keyword
+    }
+
+    pub fn expression(&self) -> &ExpressionSyntax {
+        &self.expression
+    }
+
+    pub fn semicolon_token(&self) -> Token {
+        self.semicolon_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ElseIfClauseSyntax {
     elseif_keyword: Token,
     condition: ExpressionSyntax,
@@ -678,6 +711,7 @@ impl ForStatementSyntax {
 pub enum StatementSyntax {
     Expression(ExpressionStatementSyntax),
     VariableDeclaration(VariableDeclarationStatementSyntax),
+    Return(ReturnStatementSyntax),
     Conditional(ConditionalStatementSyntax),
     While(WhileStatementSyntax),
     For(ForStatementSyntax),
@@ -1260,6 +1294,38 @@ mod tests {
         let statement = StatementSyntax::VariableDeclaration(declaration.clone());
 
         assert_eq!(statement, StatementSyntax::VariableDeclaration(declaration));
+    }
+
+    #[test]
+    fn return_statement_preserves_tokens_and_expression() {
+        let return_keyword = Token::new(TokenKind::ReturnKeyword, SourceSpan::new(0, 6));
+        let expression_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 5));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(12, 1));
+
+        let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(expression_token));
+
+        let return_statement =
+            ReturnStatementSyntax::new(return_keyword, expression.clone(), semicolon_token);
+
+        assert_eq!(return_statement.return_keyword(), return_keyword);
+        assert_eq!(return_statement.expression(), &expression);
+        assert_eq!(return_statement.semicolon_token(), semicolon_token);
+    }
+
+    #[test]
+    fn statement_syntax_preserves_return_statement() {
+        let return_keyword = Token::new(TokenKind::ReturnKeyword, SourceSpan::new(0, 6));
+        let expression_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 5));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(12, 1));
+
+        let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(expression_token));
+
+        let return_statement =
+            ReturnStatementSyntax::new(return_keyword, expression, semicolon_token);
+
+        let statement = StatementSyntax::Return(return_statement.clone());
+
+        assert_eq!(statement, StatementSyntax::Return(return_statement));
     }
 
     #[test]
