@@ -8,8 +8,8 @@ use crate::syntax::{
     ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
     ForStatementSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
-    ObjectMemberSyntax, ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
-    VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    ObjectMemberSyntax, ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax,
+    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 pub struct Parser<'source> {
@@ -62,6 +62,7 @@ impl<'source> Parser<'source> {
             TokenKind::LetKeyword | TokenKind::VarKeyword => {
                 self.parse_variable_declaration_statement()
             }
+            TokenKind::ReturnKeyword => self.parse_return_statement(),
             TokenKind::IfKeyword => self.parse_conditional_statement(),
             TokenKind::WhileKeyword => self.parse_while_statement(),
             TokenKind::ForKeyword => self.parse_for_statement(),
@@ -113,6 +114,30 @@ impl<'source> Parser<'source> {
                 semicolon_token,
             ),
         ))
+    }
+
+    fn parse_return_statement(&mut self) -> Option<StatementSyntax> {
+        if self.current_token.kind() != TokenKind::ReturnKeyword {
+            return None;
+        }
+
+        let return_keyword = self.current_token;
+        self.advance();
+
+        let expression = self.parse_expression()?;
+
+        if self.current_token.kind() != TokenKind::Semicolon {
+            return None;
+        }
+
+        let semicolon_token = self.current_token;
+        self.advance();
+
+        Some(StatementSyntax::Return(ReturnStatementSyntax::new(
+            return_keyword,
+            expression,
+            semicolon_token,
+        )))
     }
 
     fn parse_conditional_statement(&mut self) -> Option<StatementSyntax> {
@@ -4260,6 +4285,68 @@ mod tests {
         let second_statement = parser.parse_statement().unwrap();
         assert!(matches!(second_statement, StatementSyntax::While(_)));
 
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_return_statement() {
+        let source = SourceText::new("return value;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected return statement");
+
+        let StatementSyntax::Return(return_statement) = statement else {
+            panic!("expected return statement");
+        };
+
+        assert_eq!(
+            return_statement.return_keyword().kind(),
+            TokenKind::ReturnKeyword
+        );
+        assert!(matches!(
+            return_statement.expression(),
+            ExpressionSyntax::Name(_)
+        ));
+        assert_eq!(
+            return_statement.semicolon_token().kind(),
+            TokenKind::Semicolon
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_return_statement_accepts_literal_expression() {
+        let source = SourceText::new("return 10;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected return statement");
+
+        let StatementSyntax::Return(return_statement) = statement else {
+            panic!("expected return statement");
+        };
+
+        assert!(matches!(
+            return_statement.expression(),
+            ExpressionSyntax::Literal(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_return_statement_advances_to_next_statement() {
+        let source = SourceText::new("return value; next;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected return statement");
+
+        assert!(matches!(statement, StatementSyntax::Return(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
+
+        let next_statement = parser
+            .parse_statement()
+            .expect("expected following expression statement");
+
+        assert!(matches!(next_statement, StatementSyntax::Expression(_)));
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 }
