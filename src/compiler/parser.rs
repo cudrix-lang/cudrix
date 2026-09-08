@@ -4495,4 +4495,69 @@ mod tests {
         ));
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
+
+    #[test]
+    fn parser_return_statement_returns_none_without_expression() {
+        let source = SourceText::new("return");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_return_statement_rejects_bare_return() {
+        let source = SourceText::new("return;");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_return_statement_returns_none_for_incomplete_unary_expression() {
+        let source = SourceText::new("return + ;");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_return_statement_returns_none_without_semicolon() {
+        let source = SourceText::new("return value");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_return_statement_returns_none_for_incomplete_binary_expression() {
+        let source = SourceText::new("return first + ;");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_return_statement_returns_none_for_incomplete_conditional_expression() {
+        let source = SourceText::new("return ready ? : fallback;");
+        let mut parser = Parser::new(&source);
+
+        assert_eq!(parser.parse_statement(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::Colon);
+    }
+
+    #[test]
+    fn parser_return_statement_skips_trivia() {
+        let source = SourceText::new("return /* before */ value /* after */ ; /* following */");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected return statement");
+
+        assert!(matches!(statement, StatementSyntax::Return(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
 }
