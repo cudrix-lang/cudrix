@@ -4349,4 +4349,150 @@ mod tests {
         assert!(matches!(next_statement, StatementSyntax::Expression(_)));
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
+
+    #[test]
+    fn parser_return_statement_accepts_binary_expression() {
+        let source = SourceText::new("return first + second * third;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected return statement");
+
+        let StatementSyntax::Return(return_statement) = statement else {
+            panic!("expected return statement");
+        };
+
+        assert!(matches!(
+            return_statement.expression(),
+            ExpressionSyntax::Binary(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_return_statement_accepts_call_expression() {
+        let source = SourceText::new("return process(value);");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected return statement");
+
+        let StatementSyntax::Return(return_statement) = statement else {
+            panic!("expected return statement");
+        };
+
+        assert!(matches!(
+            return_statement.expression(),
+            ExpressionSyntax::Call(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_return_statement_accepts_conditional_expression() {
+        let source = SourceText::new("return ready ? first : second;");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected return statement");
+
+        let StatementSyntax::Return(return_statement) = statement else {
+            panic!("expected return statement");
+        };
+
+        assert!(matches!(
+            return_statement.expression(),
+            ExpressionSyntax::Conditional(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_block_accepts_return_statement() {
+        let source = SourceText::new("{ return value; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.statements().len(), 1);
+        assert!(matches!(block.statements()[0], StatementSyntax::Return(_)));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_block_accepts_multiple_statements_with_return() {
+        let source = SourceText::new("{ value; return result; next; }");
+        let mut parser = Parser::new(&source);
+
+        let block = parser.parse_block().expect("expected block");
+
+        assert_eq!(block.statements().len(), 3);
+        assert!(matches!(
+            block.statements()[0],
+            StatementSyntax::Expression(_)
+        ));
+        assert!(matches!(block.statements()[1], StatementSyntax::Return(_)));
+        assert!(matches!(
+            block.statements()[2],
+            StatementSyntax::Expression(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_conditional_statement_accepts_return_statement_in_block() {
+        let source = SourceText::new("if ready { return result; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser
+            .parse_statement()
+            .expect("expected conditional statement");
+
+        let StatementSyntax::Conditional(conditional) = statement else {
+            panic!("expected conditional statement");
+        };
+
+        assert_eq!(conditional.then_block().statements().len(), 1);
+        assert!(matches!(
+            conditional.then_block().statements()[0],
+            StatementSyntax::Return(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_while_statement_accepts_return_statement_in_block() {
+        let source = SourceText::new("while active { return value; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected while statement");
+
+        let StatementSyntax::While(while_statement) = statement else {
+            panic!("expected while statement");
+        };
+
+        assert_eq!(while_statement.block().statements().len(), 1);
+        assert!(matches!(
+            while_statement.block().statements()[0],
+            StatementSyntax::Return(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_for_statement_accepts_return_statement_in_block() {
+        let source =
+            SourceText::new("for index = 0; index < count; index = index + 1 { return index; }");
+        let mut parser = Parser::new(&source);
+
+        let statement = parser.parse_statement().expect("expected for statement");
+
+        let StatementSyntax::For(for_statement) = statement else {
+            panic!("expected for statement");
+        };
+
+        assert_eq!(for_statement.block().statements().len(), 1);
+        assert!(matches!(
+            for_statement.block().statements()[0],
+            StatementSyntax::Return(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
 }
