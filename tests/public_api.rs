@@ -7,8 +7,8 @@ use cudrix::syntax::{
     ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
     ForStatementSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
-    ObjectMemberSyntax, ParenthesizedExpressionSyntax, StatementSyntax, UnaryExpressionSyntax,
-    VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    ObjectMemberSyntax, ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax,
+    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 #[test]
@@ -574,6 +574,22 @@ fn cudrix_exposes_for_statement_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_return_statement_syntax() {
+    let return_keyword = Token::new(TokenKind::ReturnKeyword, SourceSpan::new(0, 6));
+    let expression_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 5));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(12, 1));
+
+    let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(expression_token));
+
+    let return_statement =
+        ReturnStatementSyntax::new(return_keyword, expression.clone(), semicolon_token);
+
+    assert_eq!(return_statement.return_keyword(), return_keyword);
+    assert_eq!(return_statement.expression(), &expression);
+    assert_eq!(return_statement.semicolon_token(), semicolon_token);
+}
+
+#[test]
 fn cudrix_exposes_variable_declaration_statement_syntax() {
     let declaration_keyword = Token::new(TokenKind::LetKeyword, SourceSpan::new(0, 3));
     let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 5));
@@ -979,6 +995,32 @@ fn cudrix_parser_exposes_variable_declaration_statement_parsing() {
 }
 
 #[test]
+fn cudrix_parser_exposes_return_statement_parsing() {
+    let source = SourceText::new("return result;");
+    let mut parser = Parser::new(&source);
+
+    let statement = parser.parse_statement().unwrap();
+
+    let StatementSyntax::Return(return_statement) = statement else {
+        panic!("expected return statement");
+    };
+
+    assert_eq!(
+        return_statement.return_keyword().kind(),
+        TokenKind::ReturnKeyword
+    );
+    assert!(matches!(
+        return_statement.expression(),
+        ExpressionSyntax::Name(_)
+    ));
+    assert_eq!(
+        return_statement.semicolon_token().kind(),
+        TokenKind::Semicolon
+    );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
 fn cudrix_exposes_variable_declaration_statement_variant() {
     let declaration_keyword = Token::new(TokenKind::VarKeyword, SourceSpan::new(0, 3));
     let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(4, 5));
@@ -999,6 +1041,21 @@ fn cudrix_exposes_variable_declaration_statement_variant() {
     let statement = StatementSyntax::VariableDeclaration(declaration.clone());
 
     assert_eq!(statement, StatementSyntax::VariableDeclaration(declaration));
+}
+
+#[test]
+fn cudrix_exposes_return_statement_variant() {
+    let return_keyword = Token::new(TokenKind::ReturnKeyword, SourceSpan::new(0, 6));
+    let expression_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 5));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(12, 1));
+
+    let expression = ExpressionSyntax::Name(NameExpressionSyntax::new(expression_token));
+
+    let return_statement = ReturnStatementSyntax::new(return_keyword, expression, semicolon_token);
+
+    let statement = StatementSyntax::Return(return_statement.clone());
+
+    assert_eq!(statement, StatementSyntax::Return(return_statement));
 }
 
 #[test]
