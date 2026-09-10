@@ -5,10 +5,11 @@ use cudrix::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
     CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
     ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
-    ForStatementSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
-    MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
-    ObjectMemberSyntax, ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax,
-    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax, IndexExpressionSyntax,
+    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
+    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
+    ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
+    VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 #[test]
@@ -615,6 +616,60 @@ fn cudrix_exposes_variable_declaration_statement_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_function_declaration_syntax() {
+    let function_keyword = Token::new(TokenKind::FunctionKeyword, SourceSpan::new(0, 8));
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(9, 3));
+    let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(12, 1));
+    let parameter_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(13, 5));
+    let comma_token = Token::new(TokenKind::Comma, SourceSpan::new(18, 1));
+    let second_parameter_identifier_token =
+        Token::new(TokenKind::Identifier, SourceSpan::new(20, 6));
+    let right_parenthesis_token = Token::new(TokenKind::RightParenthesis, SourceSpan::new(26, 1));
+    let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(28, 1));
+    let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(29, 1));
+
+    let parameters = vec![
+        FunctionParameterSyntax::new(parameter_identifier_token, Some(comma_token)),
+        FunctionParameterSyntax::new(second_parameter_identifier_token, None),
+    ];
+
+    let body = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+    let declaration = FunctionDeclarationSyntax::new(
+        function_keyword,
+        identifier_token,
+        left_parenthesis_token,
+        parameters,
+        right_parenthesis_token,
+        body,
+    );
+
+    assert_eq!(declaration.function_keyword(), function_keyword);
+    assert_eq!(declaration.identifier_token(), identifier_token);
+    assert_eq!(declaration.left_parenthesis_token(), left_parenthesis_token);
+    assert_eq!(declaration.parameters().len(), 2);
+
+    assert_eq!(
+        declaration.parameters()[0].identifier_token(),
+        parameter_identifier_token
+    );
+    assert_eq!(declaration.parameters()[0].comma_token(), Some(comma_token));
+    assert_eq!(
+        declaration.parameters()[1].identifier_token(),
+        second_parameter_identifier_token
+    );
+    assert_eq!(declaration.parameters()[1].comma_token(), None);
+
+    assert_eq!(
+        declaration.right_parenthesis_token(),
+        right_parenthesis_token
+    );
+    assert_eq!(declaration.body().left_brace_token(), left_brace_token);
+    assert!(declaration.body().statements().is_empty());
+    assert_eq!(declaration.body().right_brace_token(), right_brace_token);
+}
+
+#[test]
 fn cudrix_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -1135,5 +1190,63 @@ fn cudrix_parser_exposes_object_literal_expression_parsing() {
         object_literal_expression.members()[1].value(),
         ExpressionSyntax::Literal(_)
     ));
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_function_declaration_parsing() {
+    let source = SourceText::new("function add(first, second) { return first + second; }");
+    let mut parser = Parser::new(&source);
+
+    let declaration = parser
+        .parse_function_declaration()
+        .expect("expected function declaration");
+
+    assert_eq!(
+        declaration.function_keyword().kind(),
+        TokenKind::FunctionKeyword
+    );
+    assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+    assert_eq!(
+        declaration.left_parenthesis_token().kind(),
+        TokenKind::LeftParenthesis
+    );
+
+    assert_eq!(declaration.parameters().len(), 2);
+    assert_eq!(
+        declaration.parameters()[0].identifier_token().kind(),
+        TokenKind::Identifier
+    );
+    assert_eq!(
+        declaration.parameters()[0]
+            .comma_token()
+            .expect("expected comma")
+            .kind(),
+        TokenKind::Comma
+    );
+    assert_eq!(
+        declaration.parameters()[1].identifier_token().kind(),
+        TokenKind::Identifier
+    );
+    assert_eq!(declaration.parameters()[1].comma_token(), None);
+
+    assert_eq!(
+        declaration.right_parenthesis_token().kind(),
+        TokenKind::RightParenthesis
+    );
+    assert_eq!(
+        declaration.body().left_brace_token().kind(),
+        TokenKind::LeftBrace
+    );
+    assert_eq!(declaration.body().statements().len(), 1);
+    assert!(matches!(
+        declaration.body().statements()[0],
+        StatementSyntax::Return(_)
+    ));
+    assert_eq!(
+        declaration.body().right_brace_token().kind(),
+        TokenKind::RightBrace
+    );
+
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
