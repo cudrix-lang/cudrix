@@ -6,7 +6,7 @@ use crate::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
     CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
     ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
-    ForStatementSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    ForStatementSyntax, FunctionDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
     ObjectMemberSyntax, ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax,
     UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
@@ -30,6 +30,47 @@ impl<'source> Parser<'source> {
 
     pub fn current_token(&self) -> Token {
         self.current_token
+    }
+
+    pub fn parse_function_declaration(&mut self) -> Option<FunctionDeclarationSyntax> {
+        if self.current_token.kind() != TokenKind::FunctionKeyword {
+            return None;
+        }
+
+        let function_keyword = self.current_token;
+        self.advance();
+
+        if self.current_token.kind() != TokenKind::Identifier {
+            return None;
+        }
+
+        let identifier_token = self.current_token;
+        self.advance();
+
+        if self.current_token.kind() != TokenKind::LeftParenthesis {
+            return None;
+        }
+
+        let left_parenthesis_token = self.current_token;
+        self.advance();
+
+        if self.current_token.kind() != TokenKind::RightParenthesis {
+            return None;
+        }
+
+        let right_parenthesis_token = self.current_token;
+        self.advance();
+
+        let body = self.parse_block()?;
+
+        Some(FunctionDeclarationSyntax::new(
+            function_keyword,
+            identifier_token,
+            left_parenthesis_token,
+            Vec::new(),
+            right_parenthesis_token,
+            body,
+        ))
     }
 
     pub fn parse_block(&mut self) -> Option<BlockSyntax> {
@@ -4312,6 +4353,80 @@ mod tests {
             TokenKind::Semicolon
         );
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_function_declaration_without_parameters() {
+        let source = SourceText::new("function greet() {}");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(
+            declaration.function_keyword().kind(),
+            TokenKind::FunctionKeyword
+        );
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(
+            declaration.left_parenthesis_token().kind(),
+            TokenKind::LeftParenthesis
+        );
+        assert!(declaration.parameters().is_empty());
+        assert_eq!(
+            declaration.right_parenthesis_token().kind(),
+            TokenKind::RightParenthesis
+        );
+        assert!(declaration.body().statements().is_empty());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_accepts_statement_in_body() {
+        let source = SourceText::new("function identity() { return value; }");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(declaration.body().statements().len(), 1);
+        assert!(matches!(
+            declaration.body().statements()[0],
+            StatementSyntax::Return(_)
+        ));
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_skips_trivia() {
+        let source = SourceText::new(
+            "function /* keyword */ greet /* name */ ( /* open */ ) /* close */ { /* body */ }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert!(declaration.parameters().is_empty());
+        assert!(declaration.body().statements().is_empty());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_advances_past_body() {
+        let source = SourceText::new("function greet() {} next");
+        let mut parser = Parser::new(&source);
+
+        parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
+        assert_eq!(parser.current_token().span(), SourceSpan::new(20, 4));
     }
 
     #[test]
