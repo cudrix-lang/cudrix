@@ -4543,6 +4543,103 @@ mod tests {
     }
 
     #[test]
+    fn parser_function_declaration_accepts_multiple_body_statements() {
+        let source = SourceText::new(
+            "function process(value) { let first = value; var second = first; return second; }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(declaration.body().statements().len(), 3);
+
+        assert!(matches!(
+            declaration.body().statements()[0],
+            StatementSyntax::VariableDeclaration(_)
+        ));
+        assert!(matches!(
+            declaration.body().statements()[1],
+            StatementSyntax::VariableDeclaration(_)
+        ));
+        assert!(matches!(
+            declaration.body().statements()[2],
+            StatementSyntax::Return(_)
+        ));
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_accepts_conditional_in_body() {
+        let source = SourceText::new(
+            "function choose(value) { if value { return value; } else { return 0; } }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(declaration.body().statements().len(), 1);
+        assert!(matches!(
+            declaration.body().statements()[0],
+            StatementSyntax::Conditional(_)
+        ));
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_accepts_while_loop_in_body() {
+        let source = SourceText::new(
+            "function repeat(value) { while value { value = value - 1; } return value; }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(declaration.body().statements().len(), 2);
+        assert!(matches!(
+            declaration.body().statements()[0],
+            StatementSyntax::While(_)
+        ));
+        assert!(matches!(
+            declaration.body().statements()[1],
+            StatementSyntax::Return(_)
+        ));
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_accepts_for_loop_in_body() {
+        let source = SourceText::new(
+            "function iterate(index) { for index = 0; index < 10; index = index + 1 { value = index; } return value; }",
+        );
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(declaration.body().statements().len(), 2);
+        assert!(matches!(
+            declaration.body().statements()[0],
+            StatementSyntax::For(_)
+        ));
+        assert!(matches!(
+            declaration.body().statements()[1],
+            StatementSyntax::Return(_)
+        ));
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_return_statement_accepts_literal_expression() {
         let source = SourceText::new("return 10;");
         let mut parser = Parser::new(&source);
