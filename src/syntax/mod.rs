@@ -750,6 +750,83 @@ impl BlockSyntax {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionParameterSyntax {
+    identifier_token: Token,
+    comma_token: Option<Token>,
+}
+
+impl FunctionParameterSyntax {
+    pub fn new(identifier_token: Token, comma_token: Option<Token>) -> Self {
+        Self {
+            identifier_token,
+            comma_token,
+        }
+    }
+
+    pub fn identifier_token(&self) -> Token {
+        self.identifier_token
+    }
+
+    pub fn comma_token(&self) -> Option<Token> {
+        self.comma_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FunctionDeclarationSyntax {
+    function_keyword: Token,
+    identifier_token: Token,
+    left_parenthesis_token: Token,
+    parameters: Vec<FunctionParameterSyntax>,
+    right_parenthesis_token: Token,
+    body: BlockSyntax,
+}
+
+impl FunctionDeclarationSyntax {
+    pub fn new(
+        function_keyword: Token,
+        identifier_token: Token,
+        left_parenthesis_token: Token,
+        parameters: Vec<FunctionParameterSyntax>,
+        right_parenthesis_token: Token,
+        body: BlockSyntax,
+    ) -> Self {
+        Self {
+            function_keyword,
+            identifier_token,
+            left_parenthesis_token,
+            parameters,
+            right_parenthesis_token,
+            body,
+        }
+    }
+
+    pub fn function_keyword(&self) -> Token {
+        self.function_keyword
+    }
+
+    pub fn identifier_token(&self) -> Token {
+        self.identifier_token
+    }
+
+    pub fn left_parenthesis_token(&self) -> Token {
+        self.left_parenthesis_token
+    }
+
+    pub fn parameters(&self) -> &[FunctionParameterSyntax] {
+        &self.parameters
+    }
+
+    pub fn right_parenthesis_token(&self) -> Token {
+        self.right_parenthesis_token
+    }
+
+    pub fn body(&self) -> &BlockSyntax {
+        &self.body
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1244,6 +1321,75 @@ mod tests {
         let statement = StatementSyntax::Expression(expression_statement.clone());
 
         assert_eq!(statement, StatementSyntax::Expression(expression_statement));
+    }
+
+    #[test]
+    fn function_parameter_preserves_identifier_and_comma_tokens() {
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 5));
+        let comma_token = Token::new(TokenKind::Comma, SourceSpan::new(5, 1));
+
+        let parameter = FunctionParameterSyntax::new(identifier_token, Some(comma_token));
+
+        assert_eq!(parameter.identifier_token(), identifier_token);
+        assert_eq!(parameter.comma_token(), Some(comma_token));
+
+        let final_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 6));
+        let final_parameter = FunctionParameterSyntax::new(final_identifier_token, None);
+
+        assert_eq!(final_parameter.identifier_token(), final_identifier_token);
+        assert_eq!(final_parameter.comma_token(), None);
+    }
+
+    #[test]
+    fn function_declaration_preserves_tokens_parameters_and_body() {
+        let function_keyword = Token::new(TokenKind::FunctionKeyword, SourceSpan::new(0, 8));
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(9, 3));
+        let left_parenthesis_token = Token::new(TokenKind::LeftParenthesis, SourceSpan::new(12, 1));
+        let first_parameter_token = Token::new(TokenKind::Identifier, SourceSpan::new(13, 5));
+        let comma_token = Token::new(TokenKind::Comma, SourceSpan::new(18, 1));
+        let second_parameter_token = Token::new(TokenKind::Identifier, SourceSpan::new(20, 6));
+        let right_parenthesis_token =
+            Token::new(TokenKind::RightParenthesis, SourceSpan::new(26, 1));
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(28, 1));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(29, 1));
+
+        let parameters = vec![
+            FunctionParameterSyntax::new(first_parameter_token, Some(comma_token)),
+            FunctionParameterSyntax::new(second_parameter_token, None),
+        ];
+
+        let body = BlockSyntax::new(left_brace_token, Vec::new(), right_brace_token);
+
+        let declaration = FunctionDeclarationSyntax::new(
+            function_keyword,
+            identifier_token,
+            left_parenthesis_token,
+            parameters,
+            right_parenthesis_token,
+            body,
+        );
+
+        assert_eq!(declaration.function_keyword(), function_keyword);
+        assert_eq!(declaration.identifier_token(), identifier_token);
+        assert_eq!(declaration.left_parenthesis_token(), left_parenthesis_token);
+        assert_eq!(declaration.parameters().len(), 2);
+        assert_eq!(
+            declaration.parameters()[0].identifier_token(),
+            first_parameter_token
+        );
+        assert_eq!(declaration.parameters()[0].comma_token(), Some(comma_token));
+        assert_eq!(
+            declaration.parameters()[1].identifier_token(),
+            second_parameter_token
+        );
+        assert_eq!(declaration.parameters()[1].comma_token(), None);
+        assert_eq!(
+            declaration.right_parenthesis_token(),
+            right_parenthesis_token
+        );
+        assert_eq!(declaration.body().left_brace_token(), left_brace_token);
+        assert!(declaration.body().statements().is_empty());
+        assert_eq!(declaration.body().right_brace_token(), right_brace_token);
     }
 
     #[test]
