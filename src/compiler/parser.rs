@@ -4640,6 +4640,105 @@ mod tests {
     }
 
     #[test]
+    fn parser_function_declaration_returns_none_without_name() {
+        let source = SourceText::new("function");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_returns_none_when_name_is_missing_before_parenthesis() {
+        let source = SourceText::new("function ()");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::LeftParenthesis);
+    }
+
+    #[test]
+    fn parser_function_declaration_returns_none_without_right_parenthesis() {
+        let source = SourceText::new("function name(");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_returns_none_without_left_parenthesis() {
+        let source = SourceText::new("function name)");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::RightParenthesis);
+    }
+
+    #[test]
+    fn parser_function_declaration_returns_none_for_missing_first_parameter() {
+        let source = SourceText::new("function name(,)");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Comma);
+    }
+
+    #[test]
+    fn parser_function_declaration_returns_none_for_trailing_comma() {
+        let source = SourceText::new("function name(first,)");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::RightParenthesis);
+    }
+
+    #[test]
+    fn parser_function_declaration_returns_none_for_missing_parameter_comma() {
+        let source = SourceText::new("function name(first second)");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
+    }
+
+    #[test]
+    fn parser_function_declaration_returns_none_for_incomplete_parameter_list() {
+        let source = SourceText::new("function name(first, second");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_returns_none_without_body() {
+        let source = SourceText::new("function name(first, second)");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_returns_none_for_incomplete_body() {
+        let source = SourceText::new("function name() { return value;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_function_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_statement_does_not_parse_function_declaration() {
+        let source = SourceText::new("function greet() {}");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_statement().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::FunctionKeyword);
+    }
+
+    #[test]
     fn parser_return_statement_accepts_literal_expression() {
         let source = SourceText::new("return 10;");
         let mut parser = Parser::new(&source);
