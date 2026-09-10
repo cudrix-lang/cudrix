@@ -6,10 +6,11 @@ use crate::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
     CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
     ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
-    ForStatementSyntax, FunctionDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
-    MemberAccessExpressionSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
-    ObjectMemberSyntax, ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax,
-    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax, IndexExpressionSyntax,
+    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
+    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
+    ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
+    VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 pub struct Parser<'source> {
@@ -54,6 +55,33 @@ impl<'source> Parser<'source> {
         let left_parenthesis_token = self.current_token;
         self.advance();
 
+        let mut parameters = Vec::new();
+
+        if self.current_token.kind() != TokenKind::RightParenthesis {
+            loop {
+                if self.current_token.kind() != TokenKind::Identifier {
+                    return None;
+                }
+
+                let identifier_token = self.current_token;
+                self.advance();
+
+                let comma_token = if self.current_token.kind() == TokenKind::Comma {
+                    let comma_token = self.current_token;
+                    self.advance();
+                    Some(comma_token)
+                } else {
+                    None
+                };
+
+                parameters.push(FunctionParameterSyntax::new(identifier_token, comma_token));
+
+                if comma_token.is_none() {
+                    break;
+                }
+            }
+        }
+
         if self.current_token.kind() != TokenKind::RightParenthesis {
             return None;
         }
@@ -67,7 +95,7 @@ impl<'source> Parser<'source> {
             function_keyword,
             identifier_token,
             left_parenthesis_token,
-            Vec::new(),
+            parameters,
             right_parenthesis_token,
             body,
         ))
@@ -4427,6 +4455,91 @@ mod tests {
 
         assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
         assert_eq!(parser.current_token().span(), SourceSpan::new(20, 4));
+    }
+
+    #[test]
+    fn parser_function_declaration_accepts_single_parameter() {
+        let source = SourceText::new("function identity(value) {}");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(declaration.parameters().len(), 1);
+        assert_eq!(
+            declaration.parameters()[0].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(declaration.parameters()[0].comma_token(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_accepts_multiple_parameters() {
+        let source = SourceText::new("function add(first, second, third) {}");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(declaration.parameters().len(), 3);
+
+        assert_eq!(
+            declaration.parameters()[0].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            declaration.parameters()[0]
+                .comma_token()
+                .expect("expected comma")
+                .kind(),
+            TokenKind::Comma
+        );
+
+        assert_eq!(
+            declaration.parameters()[1].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            declaration.parameters()[1]
+                .comma_token()
+                .expect("expected comma")
+                .kind(),
+            TokenKind::Comma
+        );
+
+        assert_eq!(
+            declaration.parameters()[2].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(declaration.parameters()[2].comma_token(), None);
+
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_function_declaration_skips_trivia_between_parameters() {
+        let source = SourceText::new(
+            "function add( /* first */ first /* comma */, /* second */ second /* close */ ) {}",
+        );
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_function_declaration()
+            .expect("expected function declaration");
+
+        assert_eq!(declaration.parameters().len(), 2);
+        assert_eq!(
+            declaration.parameters()[0]
+                .comma_token()
+                .expect("expected comma")
+                .kind(),
+            TokenKind::Comma
+        );
+        assert_eq!(declaration.parameters()[1].comma_token(), None);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 
     #[test]
