@@ -36,7 +36,7 @@ impl<'source> Parser<'source> {
     pub fn parse_compilation_unit(&mut self) -> Option<CompilationUnitSyntax> {
         let mut function_declarations = Vec::new();
 
-        if self.current_token.kind() == TokenKind::FunctionKeyword {
+        while self.current_token.kind() == TokenKind::FunctionKeyword {
             function_declarations.push(self.parse_function_declaration()?);
         }
 
@@ -4440,6 +4440,56 @@ mod tests {
                 .kind(),
             TokenKind::Identifier
         );
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_compilation_unit_with_multiple_function_declarations() {
+        let source = SourceText::new(
+            r#"
+    function first() {
+    }
+
+    function second(value) {
+        return value;
+    }
+
+    function third(left, right) {
+        return left + right;
+    }
+    "#,
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert_eq!(compilation_unit.function_declarations().len(), 3);
+
+        assert_eq!(
+            compilation_unit.function_declarations()[0]
+                .parameters()
+                .len(),
+            0
+        );
+        assert_eq!(
+            compilation_unit.function_declarations()[1]
+                .parameters()
+                .len(),
+            1
+        );
+        assert_eq!(
+            compilation_unit.function_declarations()[2]
+                .parameters()
+                .len(),
+            2
+        );
+
         assert_eq!(
             compilation_unit.end_of_file_token().kind(),
             TokenKind::EndOfFile
