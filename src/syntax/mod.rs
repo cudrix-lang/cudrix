@@ -827,6 +827,32 @@ impl FunctionDeclarationSyntax {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompilationUnitSyntax {
+    function_declarations: Vec<FunctionDeclarationSyntax>,
+    end_of_file_token: Token,
+}
+
+impl CompilationUnitSyntax {
+    pub fn new(
+        function_declarations: Vec<FunctionDeclarationSyntax>,
+        end_of_file_token: Token,
+    ) -> Self {
+        Self {
+            function_declarations,
+            end_of_file_token,
+        }
+    }
+
+    pub fn function_declarations(&self) -> &[FunctionDeclarationSyntax] {
+        &self.function_declarations
+    }
+
+    pub fn end_of_file_token(&self) -> Token {
+        self.end_of_file_token
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
