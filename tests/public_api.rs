@@ -3,12 +3,12 @@ use cudrix::compiler::{Lexer, Parser, Token, TokenKind};
 use cudrix::source::{SourceFile, SourceLocation, SourceSpan, SourceText};
 use cudrix::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
-    CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
-    ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
-    ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax, IndexExpressionSyntax,
-    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
-    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
-    ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
+    CallExpressionSyntax, CompilationUnitSyntax, ConditionalExpressionSyntax,
+    ConditionalStatementSyntax, ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax,
+    ExpressionSyntax, ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax,
+    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
+    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
+    ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
     VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
@@ -670,6 +670,16 @@ fn cudrix_exposes_function_declaration_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_compilation_unit_syntax() {
+    let end_of_file_token = Token::new(TokenKind::EndOfFile, SourceSpan::new(0, 0));
+
+    let compilation_unit = CompilationUnitSyntax::new(Vec::new(), end_of_file_token);
+
+    assert!(compilation_unit.function_declarations().is_empty());
+    assert_eq!(compilation_unit.end_of_file_token(), end_of_file_token);
+}
+
+#[test]
 fn cudrix_parser_exposes_literal_expression_parsing() {
     let source = SourceText::new("42");
     let mut parser = Parser::new(&source);
@@ -1248,5 +1258,43 @@ fn cudrix_parser_exposes_function_declaration_parsing() {
         TokenKind::RightBrace
     );
 
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_compilation_unit_parsing() {
+    let source = SourceText::new(
+        r#"
+        function first() {
+        }
+
+        function second(value) {
+            return value;
+        }
+        "#,
+    );
+    let mut parser = Parser::new(&source);
+
+    let compilation_unit = parser
+        .parse_compilation_unit()
+        .expect("expected compilation unit");
+
+    assert_eq!(compilation_unit.function_declarations().len(), 2);
+    assert_eq!(
+        compilation_unit.function_declarations()[0]
+            .parameters()
+            .len(),
+        0
+    );
+    assert_eq!(
+        compilation_unit.function_declarations()[1]
+            .parameters()
+            .len(),
+        1
+    );
+    assert_eq!(
+        compilation_unit.end_of_file_token().kind(),
+        TokenKind::EndOfFile
+    );
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
