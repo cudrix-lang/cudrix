@@ -4567,6 +4567,49 @@ mod tests {
     }
 
     #[test]
+    fn parser_compilation_unit_rejects_top_level_statement() {
+        let source = SourceText::new("let value = 1;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::LetKeyword);
+    }
+
+    #[test]
+    fn parser_compilation_unit_rejects_unexpected_token_after_function_declaration() {
+        let source = SourceText::new("function greet() {} let value = 1;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::LetKeyword);
+    }
+
+    #[test]
+    fn parser_compilation_unit_returns_none_for_malformed_function_declaration() {
+        let source = SourceText::new("function broken(");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_compilation_unit_returns_none_for_malformed_later_function_declaration() {
+        let source = SourceText::new(
+            r#"
+            function valid() {
+            }
+
+            function broken(
+            "#,
+        );
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_parses_function_declaration_without_parameters() {
         let source = SourceText::new("function greet() {}");
         let mut parser = Parser::new(&source);
