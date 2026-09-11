@@ -4498,6 +4498,75 @@ mod tests {
     }
 
     #[test]
+    fn parser_parses_trivia_only_compilation_unit() {
+        let source = SourceText::new(
+            r#"
+
+            // line comment
+
+            /* block comment */
+
+            "#,
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.function_declarations().is_empty());
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_compilation_unit_skips_trivia_between_function_declarations() {
+        let source = SourceText::new(
+            r#"
+            // before first function
+
+            function first() {
+            }
+
+            /* between functions */
+
+            function second(value) {
+                return value;
+            }
+
+            // after last function
+            "#,
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert_eq!(compilation_unit.function_declarations().len(), 2);
+        assert_eq!(
+            compilation_unit.function_declarations()[0]
+                .parameters()
+                .len(),
+            0
+        );
+        assert_eq!(
+            compilation_unit.function_declarations()[1]
+                .parameters()
+                .len(),
+            1
+        );
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_parses_function_declaration_without_parameters() {
         let source = SourceText::new("function greet() {}");
         let mut parser = Parser::new(&source);
