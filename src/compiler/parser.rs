@@ -4,12 +4,12 @@ use crate::compiler::lexer::{Lexer, Token, TokenKind};
 use crate::source::SourceText;
 use crate::syntax::{
     ArrayLiteralExpressionSyntax, AssignmentExpressionSyntax, BinaryExpressionSyntax, BlockSyntax,
-    CallExpressionSyntax, ConditionalExpressionSyntax, ConditionalStatementSyntax,
-    ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax, ExpressionSyntax,
-    ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax, IndexExpressionSyntax,
-    LiteralExpressionSyntax, MemberAccessExpressionSyntax, NameExpressionSyntax,
-    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
-    ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
+    CallExpressionSyntax, CompilationUnitSyntax, ConditionalExpressionSyntax,
+    ConditionalStatementSyntax, ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax,
+    ExpressionSyntax, ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax,
+    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
+    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
+    ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
     VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
@@ -31,6 +31,25 @@ impl<'source> Parser<'source> {
 
     pub fn current_token(&self) -> Token {
         self.current_token
+    }
+
+    pub fn parse_compilation_unit(&mut self) -> Option<CompilationUnitSyntax> {
+        let mut function_declarations = Vec::new();
+
+        if self.current_token.kind() == TokenKind::FunctionKeyword {
+            function_declarations.push(self.parse_function_declaration()?);
+        }
+
+        if self.current_token.kind() != TokenKind::EndOfFile {
+            return None;
+        }
+
+        let end_of_file_token = self.current_token;
+
+        Some(CompilationUnitSyntax::new(
+            function_declarations,
+            end_of_file_token,
+        ))
     }
 
     pub fn parse_function_declaration(&mut self) -> Option<FunctionDeclarationSyntax> {
@@ -4379,6 +4398,51 @@ mod tests {
         assert_eq!(
             return_statement.semicolon_token().kind(),
             TokenKind::Semicolon
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_empty_compilation_unit() {
+        let source = SourceText::new("");
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.function_declarations().is_empty());
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_compilation_unit_with_single_function_declaration() {
+        let source = SourceText::new(
+            r#"
+    function greet() {
+    }
+    "#,
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(
+            compilation_unit.function_declarations()[0]
+                .identifier_token()
+                .kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
         );
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
