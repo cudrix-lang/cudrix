@@ -8,9 +8,9 @@ use crate::syntax::{
     ConditionalStatementSyntax, ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax,
     ExpressionSyntax, ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax,
     IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
-    ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
-    VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    ModuleDeclarationSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
+    ObjectMemberSyntax, ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax,
+    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 pub struct Parser<'source> {
@@ -49,6 +49,35 @@ impl<'source> Parser<'source> {
         Some(CompilationUnitSyntax::new(
             function_declarations,
             end_of_file_token,
+        ))
+    }
+
+    pub fn parse_module_declaration(&mut self) -> Option<ModuleDeclarationSyntax> {
+        if self.current_token.kind() != TokenKind::ModuleKeyword {
+            return None;
+        }
+
+        let module_keyword = self.current_token;
+        self.advance();
+
+        if self.current_token.kind() != TokenKind::Identifier {
+            return None;
+        }
+
+        let identifier_token = self.current_token;
+        self.advance();
+
+        if self.current_token.kind() != TokenKind::Semicolon {
+            return None;
+        }
+
+        let semicolon_token = self.current_token;
+        self.advance();
+
+        Some(ModuleDeclarationSyntax::new(
+            module_keyword,
+            identifier_token,
+            semicolon_token,
         ))
     }
 
@@ -4606,6 +4635,24 @@ mod tests {
         let mut parser = Parser::new(&source);
 
         assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_module_declaration() {
+        let source = SourceText::new("module application;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_module_declaration()
+            .expect("expected module declaration");
+
+        assert_eq!(
+            declaration.module_keyword().kind(),
+            TokenKind::ModuleKeyword
+        );
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 
