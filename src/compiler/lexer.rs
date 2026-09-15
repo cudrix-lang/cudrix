@@ -15,6 +15,7 @@ pub enum TokenKind {
     LetKeyword,
     VarKeyword,
     FunctionKeyword,
+    ModuleKeyword,
     ImplementationKeyword,
 
     ReturnKeyword,
@@ -351,6 +352,7 @@ impl<'source> Lexer<'source> {
             "let" => TokenKind::LetKeyword,
             "var" => TokenKind::VarKeyword,
             "function" => TokenKind::FunctionKeyword,
+            "module" => TokenKind::ModuleKeyword,
             "implementation" => TokenKind::ImplementationKeyword,
 
             "return" => TokenKind::ReturnKeyword,
@@ -813,6 +815,7 @@ mod tests {
             ("let", TokenKind::LetKeyword),
             ("var", TokenKind::VarKeyword),
             ("function", TokenKind::FunctionKeyword),
+            ("module", TokenKind::ModuleKeyword),
             ("implementation", TokenKind::ImplementationKeyword),
             ("return", TokenKind::ReturnKeyword),
             ("if", TokenKind::IfKeyword),
