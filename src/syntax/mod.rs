@@ -774,6 +774,35 @@ impl FunctionParameterSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ModuleDeclarationSyntax {
+    module_keyword: Token,
+    identifier_token: Token,
+    semicolon_token: Token,
+}
+
+impl ModuleDeclarationSyntax {
+    pub fn new(module_keyword: Token, identifier_token: Token, semicolon_token: Token) -> Self {
+        Self {
+            module_keyword,
+            identifier_token,
+            semicolon_token,
+        }
+    }
+
+    pub fn module_keyword(&self) -> Token {
+        self.module_keyword
+    }
+
+    pub fn identifier_token(&self) -> Token {
+        self.identifier_token
+    }
+
+    pub fn semicolon_token(&self) -> Token {
+        self.semicolon_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionDeclarationSyntax {
     function_keyword: Token,
     identifier_token: Token,
@@ -1364,6 +1393,20 @@ mod tests {
 
         assert_eq!(final_parameter.identifier_token(), final_identifier_token);
         assert_eq!(final_parameter.comma_token(), None);
+    }
+
+    #[test]
+    fn module_declaration_preserves_tokens() {
+        let module_keyword = Token::new(TokenKind::ModuleKeyword, SourceSpan::new(0, 6));
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 11));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(18, 1));
+
+        let declaration =
+            ModuleDeclarationSyntax::new(module_keyword, identifier_token, semicolon_token);
+
+        assert_eq!(declaration.module_keyword(), module_keyword);
+        assert_eq!(declaration.identifier_token(), identifier_token);
+        assert_eq!(declaration.semicolon_token(), semicolon_token);
     }
 
     #[test]
