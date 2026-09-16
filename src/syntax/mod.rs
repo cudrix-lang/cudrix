@@ -858,19 +858,26 @@ impl FunctionDeclarationSyntax {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilationUnitSyntax {
+    module_declaration: Option<ModuleDeclarationSyntax>,
     function_declarations: Vec<FunctionDeclarationSyntax>,
     end_of_file_token: Token,
 }
 
 impl CompilationUnitSyntax {
     pub fn new(
+        module_declaration: Option<ModuleDeclarationSyntax>,
         function_declarations: Vec<FunctionDeclarationSyntax>,
         end_of_file_token: Token,
     ) -> Self {
         Self {
+            module_declaration,
             function_declarations,
             end_of_file_token,
         }
+    }
+
+    pub fn module_declaration(&self) -> Option<&ModuleDeclarationSyntax> {
+        self.module_declaration.as_ref()
     }
 
     pub fn function_declarations(&self) -> &[FunctionDeclarationSyntax] {

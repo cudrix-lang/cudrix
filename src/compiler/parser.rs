@@ -34,6 +34,12 @@ impl<'source> Parser<'source> {
     }
 
     pub fn parse_compilation_unit(&mut self) -> Option<CompilationUnitSyntax> {
+        let module_declaration = if self.current_token.kind() == TokenKind::ModuleKeyword {
+            Some(self.parse_module_declaration()?)
+        } else {
+            None
+        };
+
         let mut function_declarations = Vec::new();
 
         while self.current_token.kind() == TokenKind::FunctionKeyword {
@@ -47,6 +53,7 @@ impl<'source> Parser<'source> {
         let end_of_file_token = self.current_token;
 
         Some(CompilationUnitSyntax::new(
+            module_declaration,
             function_declarations,
             end_of_file_token,
         ))
@@ -4441,6 +4448,39 @@ mod tests {
             .expect("expected compilation unit");
 
         assert!(compilation_unit.function_declarations().is_empty());
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_compilation_unit_with_module_and_function_declaration() {
+        let source = SourceText::new("module application; function main() {}");
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        let module_declaration = compilation_unit
+            .module_declaration()
+            .expect("expected module declaration");
+
+        assert_eq!(
+            module_declaration.module_keyword().kind(),
+            TokenKind::ModuleKeyword
+        );
+        assert_eq!(
+            module_declaration.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            module_declaration.semicolon_token().kind(),
+            TokenKind::Semicolon
+        );
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
         assert_eq!(
             compilation_unit.end_of_file_token().kind(),
             TokenKind::EndOfFile

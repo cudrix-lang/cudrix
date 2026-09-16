@@ -673,7 +673,7 @@ fn cudrix_exposes_function_declaration_syntax() {
 fn cudrix_exposes_compilation_unit_syntax() {
     let end_of_file_token = Token::new(TokenKind::EndOfFile, SourceSpan::new(0, 0));
 
-    let compilation_unit = CompilationUnitSyntax::new(Vec::new(), end_of_file_token);
+    let compilation_unit = CompilationUnitSyntax::new(None, Vec::new(), end_of_file_token);
 
     assert!(compilation_unit.function_declarations().is_empty());
     assert_eq!(compilation_unit.end_of_file_token(), end_of_file_token);
