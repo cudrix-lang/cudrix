@@ -4489,6 +4489,33 @@ mod tests {
     }
 
     #[test]
+    fn parser_compilation_unit_skips_trivia_between_module_and_function_declaration() {
+        let source = SourceText::new(
+            r#"
+            module application;
+
+            /* between module and function */
+
+            function main() {
+            }
+            "#,
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.module_declaration().is_some());
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_parses_compilation_unit_with_single_function_declaration() {
         let source = SourceText::new(
             r#"
@@ -4681,6 +4708,25 @@ mod tests {
     #[test]
     fn parser_parses_module_declaration() {
         let source = SourceText::new("module application;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_module_declaration()
+            .expect("expected module declaration");
+
+        assert_eq!(
+            declaration.module_keyword().kind(),
+            TokenKind::ModuleKeyword
+        );
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_module_declaration_skips_trivia() {
+        let source =
+            SourceText::new("module /* keyword */ application /* identifier */ ; /* semicolon */");
         let mut parser = Parser::new(&source);
 
         let declaration = parser
