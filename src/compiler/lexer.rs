@@ -16,6 +16,7 @@ pub enum TokenKind {
     VarKeyword,
     FunctionKeyword,
     ModuleKeyword,
+    ImportKeyword,
     ImplementationKeyword,
 
     ReturnKeyword,
@@ -353,6 +354,7 @@ impl<'source> Lexer<'source> {
             "var" => TokenKind::VarKeyword,
             "function" => TokenKind::FunctionKeyword,
             "module" => TokenKind::ModuleKeyword,
+            "import" => TokenKind::ImportKeyword,
             "implementation" => TokenKind::ImplementationKeyword,
 
             "return" => TokenKind::ReturnKeyword,
@@ -816,6 +818,7 @@ mod tests {
             ("var", TokenKind::VarKeyword),
             ("function", TokenKind::FunctionKeyword),
             ("module", TokenKind::ModuleKeyword),
+            ("import", TokenKind::ImportKeyword),
             ("implementation", TokenKind::ImplementationKeyword),
             ("return", TokenKind::ReturnKeyword),
             ("if", TokenKind::IfKeyword),
@@ -842,7 +845,15 @@ mod tests {
 
     #[test]
     fn lexer_keywords_are_lowercase_and_case_sensitive() {
-        for source_text in ["Let", "LET", "If", "ELSE", "Implementation"] {
+        for source_text in [
+            "Let",
+            "LET",
+            "If",
+            "ELSE",
+            "Import",
+            "IMPORT",
+            "Implementation",
+        ] {
             let source = SourceText::new(source_text);
             let mut lexer = Lexer::new(&source);
 
