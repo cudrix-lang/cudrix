@@ -7,10 +7,11 @@ use crate::syntax::{
     CallExpressionSyntax, CompilationUnitSyntax, ConditionalExpressionSyntax,
     ConditionalStatementSyntax, ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax,
     ExpressionSyntax, ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax,
-    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    ModuleDeclarationSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
-    ObjectMemberSyntax, ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax,
-    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    ImportDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    MemberAccessExpressionSyntax, ModuleDeclarationSyntax, NameExpressionSyntax,
+    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
+    ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
+    VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 pub struct Parser<'source> {
@@ -83,6 +84,35 @@ impl<'source> Parser<'source> {
 
         Some(ModuleDeclarationSyntax::new(
             module_keyword,
+            identifier_token,
+            semicolon_token,
+        ))
+    }
+
+    pub fn parse_import_declaration(&mut self) -> Option<ImportDeclarationSyntax> {
+        if self.current_token.kind() != TokenKind::ImportKeyword {
+            return None;
+        }
+
+        let import_keyword = self.current_token;
+        self.advance();
+
+        if self.current_token.kind() != TokenKind::Identifier {
+            return None;
+        }
+
+        let identifier_token = self.current_token;
+        self.advance();
+
+        if self.current_token.kind() != TokenKind::Semicolon {
+            return None;
+        }
+
+        let semicolon_token = self.current_token;
+        self.advance();
+
+        Some(ImportDeclarationSyntax::new(
+            import_keyword,
             identifier_token,
             semicolon_token,
         ))
@@ -4775,6 +4805,24 @@ mod tests {
         let mut parser = Parser::new(&source);
 
         assert!(parser.parse_module_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_import_declaration() {
+        let source = SourceText::new("import utilities;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected import declaration");
+
+        assert_eq!(
+            declaration.import_keyword().kind(),
+            TokenKind::ImportKeyword
+        );
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 
