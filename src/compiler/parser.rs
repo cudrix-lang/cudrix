@@ -4681,6 +4681,24 @@ mod tests {
     }
 
     #[test]
+    fn parser_compilation_unit_rejects_duplicate_module_declaration() {
+        let source = SourceText::new("module first; module second;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::ModuleKeyword);
+    }
+
+    #[test]
+    fn parser_compilation_unit_rejects_module_declaration_after_function_declaration() {
+        let source = SourceText::new("function main() {} module application;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::ModuleKeyword);
+    }
+
+    #[test]
     fn parser_compilation_unit_returns_none_for_malformed_function_declaration() {
         let source = SourceText::new("function broken(");
         let mut parser = Parser::new(&source);
@@ -4739,6 +4757,24 @@ mod tests {
         );
         assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
         assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_module_declaration_returns_none_without_identifier() {
+        let source = SourceText::new("module;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_module_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_module_declaration_returns_none_without_semicolon() {
+        let source = SourceText::new("module application");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_module_declaration().is_none());
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 
