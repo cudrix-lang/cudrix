@@ -7,9 +7,9 @@ use cudrix::syntax::{
     ConditionalStatementSyntax, ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax,
     ExpressionSyntax, ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax,
     IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    NameExpressionSyntax, ObjectLiteralExpressionSyntax, ObjectMemberSyntax,
-    ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
-    VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    ModuleDeclarationSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
+    ObjectMemberSyntax, ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax,
+    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 #[test]
@@ -616,6 +616,20 @@ fn cudrix_exposes_variable_declaration_statement_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_module_declaration_syntax() {
+    let module_keyword = Token::new(TokenKind::ModuleKeyword, SourceSpan::new(0, 6));
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 11));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(18, 1));
+
+    let declaration =
+        ModuleDeclarationSyntax::new(module_keyword, identifier_token, semicolon_token);
+
+    assert_eq!(declaration.module_keyword(), module_keyword);
+    assert_eq!(declaration.identifier_token(), identifier_token);
+    assert_eq!(declaration.semicolon_token(), semicolon_token);
+}
+
+#[test]
 fn cudrix_exposes_function_declaration_syntax() {
     let function_keyword = Token::new(TokenKind::FunctionKeyword, SourceSpan::new(0, 8));
     let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(9, 3));
@@ -1204,6 +1218,24 @@ fn cudrix_parser_exposes_object_literal_expression_parsing() {
 }
 
 #[test]
+fn cudrix_parser_exposes_module_declaration_parsing() {
+    let source = SourceText::new("module application;");
+    let mut parser = Parser::new(&source);
+
+    let declaration = parser
+        .parse_module_declaration()
+        .expect("expected module declaration");
+
+    assert_eq!(
+        declaration.module_keyword().kind(),
+        TokenKind::ModuleKeyword
+    );
+    assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+    assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
 fn cudrix_parser_exposes_function_declaration_parsing() {
     let source = SourceText::new("function add(first, second) { return first + second; }");
     let mut parser = Parser::new(&source);
@@ -1265,6 +1297,8 @@ fn cudrix_parser_exposes_function_declaration_parsing() {
 fn cudrix_parser_exposes_compilation_unit_parsing() {
     let source = SourceText::new(
         r#"
+        module application;
+
         function first() {
         }
 
@@ -1278,6 +1312,23 @@ fn cudrix_parser_exposes_compilation_unit_parsing() {
     let compilation_unit = parser
         .parse_compilation_unit()
         .expect("expected compilation unit");
+
+    let module_declaration = compilation_unit
+        .module_declaration()
+        .expect("expected module declaration");
+
+    assert_eq!(
+        module_declaration.module_keyword().kind(),
+        TokenKind::ModuleKeyword
+    );
+    assert_eq!(
+        module_declaration.identifier_token().kind(),
+        TokenKind::Identifier
+    );
+    assert_eq!(
+        module_declaration.semicolon_token().kind(),
+        TokenKind::Semicolon
+    );
 
     assert_eq!(compilation_unit.function_declarations().len(), 2);
     assert_eq!(
