@@ -4775,6 +4775,42 @@ mod tests {
     }
 
     #[test]
+    fn parser_compilation_unit_rejects_import_declaration_after_function_declaration() {
+        let source = SourceText::new("function main() {} import utilities;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::ImportKeyword);
+    }
+
+    #[test]
+    fn parser_compilation_unit_rejects_module_declaration_after_import_declaration() {
+        let source = SourceText::new("import utilities; module application;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::ModuleKeyword);
+    }
+
+    #[test]
+    fn parser_compilation_unit_returns_none_for_malformed_import_declaration() {
+        let source = SourceText::new("module application; import;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_compilation_unit_returns_none_for_malformed_later_import_declaration() {
+        let source = SourceText::new("import utilities; import graphics");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_parses_trivia_only_compilation_unit() {
         let source = SourceText::new(
             r#"
@@ -4974,6 +5010,24 @@ mod tests {
         );
         assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
         assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_import_declaration_returns_none_without_identifier() {
+        let source = SourceText::new("import;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_import_declaration_returns_none_without_semicolon() {
+        let source = SourceText::new("import utilities");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
 
