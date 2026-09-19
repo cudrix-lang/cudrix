@@ -4578,6 +4578,98 @@ mod tests {
     }
 
     #[test]
+    fn parser_parses_compilation_unit_with_import_and_function_declaration() {
+        let source = SourceText::new("import utilities; function main() {}");
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.module_declaration().is_none());
+        assert_eq!(compilation_unit.import_declarations().len(), 1);
+        assert_eq!(
+            compilation_unit.import_declarations()[0]
+                .import_keyword()
+                .kind(),
+            TokenKind::ImportKeyword
+        );
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_compilation_unit_with_multiple_import_declarations() {
+        let source = SourceText::new(
+            "module application; import utilities; import graphics; function main() {}",
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.module_declaration().is_some());
+        assert_eq!(compilation_unit.import_declarations().len(), 2);
+
+        assert_eq!(
+            compilation_unit.import_declarations()[0]
+                .identifier_token()
+                .span(),
+            SourceSpan::new(27, 9)
+        );
+        assert_eq!(
+            compilation_unit.import_declarations()[1]
+                .identifier_token()
+                .span(),
+            SourceSpan::new(45, 8)
+        );
+
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_compilation_unit_skips_trivia_around_import_declarations() {
+        let source = SourceText::new(
+            r#"
+                module application;
+
+                /* before first import */
+
+                import utilities;
+
+                // between imports
+
+                import graphics;
+
+                /* before function */
+
+                function main() {
+                }
+                "#,
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.module_declaration().is_some());
+        assert_eq!(compilation_unit.import_declarations().len(), 2);
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
+        );
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_compilation_unit_skips_trivia_between_module_and_function_declaration() {
         let source = SourceText::new(
             r#"
