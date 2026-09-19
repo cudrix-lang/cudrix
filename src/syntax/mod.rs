@@ -888,6 +888,7 @@ impl FunctionDeclarationSyntax {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CompilationUnitSyntax {
     module_declaration: Option<ModuleDeclarationSyntax>,
+    import_declarations: Vec<ImportDeclarationSyntax>,
     function_declarations: Vec<FunctionDeclarationSyntax>,
     end_of_file_token: Token,
 }
@@ -895,11 +896,13 @@ pub struct CompilationUnitSyntax {
 impl CompilationUnitSyntax {
     pub fn new(
         module_declaration: Option<ModuleDeclarationSyntax>,
+        import_declarations: Vec<ImportDeclarationSyntax>,
         function_declarations: Vec<FunctionDeclarationSyntax>,
         end_of_file_token: Token,
     ) -> Self {
         Self {
             module_declaration,
+            import_declarations,
             function_declarations,
             end_of_file_token,
         }
@@ -907,6 +910,10 @@ impl CompilationUnitSyntax {
 
     pub fn module_declaration(&self) -> Option<&ModuleDeclarationSyntax> {
         self.module_declaration.as_ref()
+    }
+
+    pub fn import_declarations(&self) -> &[ImportDeclarationSyntax] {
+        &self.import_declarations
     }
 
     pub fn function_declarations(&self) -> &[FunctionDeclarationSyntax] {

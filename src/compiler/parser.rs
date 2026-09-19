@@ -41,6 +41,12 @@ impl<'source> Parser<'source> {
             None
         };
 
+        let mut import_declarations = Vec::new();
+
+        while self.current_token.kind() == TokenKind::ImportKeyword {
+            import_declarations.push(self.parse_import_declaration()?);
+        }
+
         let mut function_declarations = Vec::new();
 
         while self.current_token.kind() == TokenKind::FunctionKeyword {
@@ -55,6 +61,7 @@ impl<'source> Parser<'source> {
 
         Some(CompilationUnitSyntax::new(
             module_declaration,
+            import_declarations,
             function_declarations,
             end_of_file_token,
         ))
@@ -4516,6 +4523,58 @@ mod tests {
             TokenKind::EndOfFile
         );
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_compilation_unit_with_module_import_and_function_declaration() {
+        let source = SourceText::new("module application; import utilities; function main() {}");
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        let module_declaration = compilation_unit
+            .module_declaration()
+            .expect("expected module declaration");
+
+        assert_eq!(
+            module_declaration.module_keyword().kind(),
+            TokenKind::ModuleKeyword
+        );
+        assert_eq!(
+            module_declaration.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+
+        assert_eq!(compilation_unit.import_declarations().len(), 1);
+
+        let import_declaration = &compilation_unit.import_declarations()[0];
+
+        assert_eq!(
+            import_declaration.import_keyword().kind(),
+            TokenKind::ImportKeyword
+        );
+        assert_eq!(
+            import_declaration.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            import_declaration.semicolon_token().kind(),
+            TokenKind::Semicolon
+        );
+
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(
+            compilation_unit.function_declarations()[0]
+                .function_keyword()
+                .kind(),
+            TokenKind::FunctionKeyword
+        );
+        assert_eq!(
+            compilation_unit.end_of_file_token().kind(),
+            TokenKind::EndOfFile
+        );
     }
 
     #[test]
