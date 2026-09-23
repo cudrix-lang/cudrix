@@ -826,10 +826,34 @@ impl QualifiedImportNameSegmentSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ImportAliasSyntax {
+    as_keyword: Token,
+    identifier_token: Token,
+}
+
+impl ImportAliasSyntax {
+    pub fn new(as_keyword: Token, identifier_token: Token) -> Self {
+        Self {
+            as_keyword,
+            identifier_token,
+        }
+    }
+
+    pub fn as_keyword(&self) -> Token {
+        self.as_keyword
+    }
+
+    pub fn identifier_token(&self) -> Token {
+        self.identifier_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportDeclarationSyntax {
     import_keyword: Token,
     identifier_token: Token,
     qualified_name_segments: Vec<QualifiedImportNameSegmentSyntax>,
+    alias: Option<ImportAliasSyntax>,
     semicolon_token: Token,
 }
 
@@ -838,12 +862,14 @@ impl ImportDeclarationSyntax {
         import_keyword: Token,
         identifier_token: Token,
         qualified_name_segments: Vec<QualifiedImportNameSegmentSyntax>,
+        alias: Option<ImportAliasSyntax>,
         semicolon_token: Token,
     ) -> Self {
         Self {
             import_keyword,
             identifier_token,
             qualified_name_segments,
+            alias,
             semicolon_token,
         }
     }
@@ -858,6 +884,10 @@ impl ImportDeclarationSyntax {
 
     pub fn qualified_name_segments(&self) -> &[QualifiedImportNameSegmentSyntax] {
         &self.qualified_name_segments
+    }
+
+    pub fn alias(&self) -> Option<&ImportAliasSyntax> {
+        self.alias.as_ref()
     }
 
     pub fn semicolon_token(&self) -> Token {
@@ -1487,6 +1517,48 @@ mod tests {
     }
 
     #[test]
+    fn import_alias_preserves_as_keyword_and_identifier_token() {
+        let as_keyword = Token::new(TokenKind::AsKeyword, SourceSpan::new(19, 2));
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(22, 2));
+
+        let alias = ImportAliasSyntax::new(as_keyword, identifier_token);
+
+        assert_eq!(alias.as_keyword(), as_keyword);
+        assert_eq!(alias.identifier_token(), identifier_token);
+    }
+
+    #[test]
+    fn import_declaration_preserves_alias() {
+        let import_keyword = Token::new(TokenKind::ImportKeyword, SourceSpan::new(0, 6));
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 8));
+        let dot_token = Token::new(TokenKind::Dot, SourceSpan::new(15, 1));
+        let qualified_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(16, 2));
+        let as_keyword = Token::new(TokenKind::AsKeyword, SourceSpan::new(19, 2));
+        let alias_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(22, 2));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(24, 1));
+
+        let qualified_name_segments = vec![QualifiedImportNameSegmentSyntax::new(
+            dot_token,
+            qualified_identifier_token,
+        )];
+
+        let alias = ImportAliasSyntax::new(as_keyword, alias_identifier_token);
+
+        let declaration = ImportDeclarationSyntax::new(
+            import_keyword,
+            identifier_token,
+            qualified_name_segments,
+            Some(alias),
+            semicolon_token,
+        );
+
+        let alias = declaration.alias().expect("expected import alias");
+
+        assert_eq!(alias.as_keyword(), as_keyword);
+        assert_eq!(alias.identifier_token(), alias_identifier_token);
+    }
+
+    #[test]
     fn import_declaration_preserves_tokens() {
         let import_keyword = Token::new(TokenKind::ImportKeyword, SourceSpan::new(0, 6));
         let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 9));
@@ -1496,11 +1568,13 @@ mod tests {
             import_keyword,
             identifier_token,
             Vec::new(),
+            None,
             semicolon_token,
         );
 
         assert_eq!(declaration.import_keyword(), import_keyword);
         assert_eq!(declaration.identifier_token(), identifier_token);
+        assert!(declaration.alias().is_none());
         assert_eq!(declaration.semicolon_token(), semicolon_token);
     }
 

@@ -647,6 +647,7 @@ fn cudrix_exposes_import_declaration_syntax() {
         import_keyword,
         identifier_token,
         qualified_name_segments,
+        None,
         semicolon_token,
     );
 
@@ -661,6 +662,7 @@ fn cudrix_exposes_import_declaration_syntax() {
         declaration.qualified_name_segments()[0].identifier_token(),
         qualified_identifier_token
     );
+    assert!(declaration.alias().is_none());
     assert_eq!(declaration.semicolon_token(), semicolon_token);
 }
 
