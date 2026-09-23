@@ -5148,6 +5148,33 @@ mod tests {
     }
 
     #[test]
+    fn parser_qualified_import_declaration_returns_none_without_identifier_after_dot() {
+        let source = SourceText::new("import standard.;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_qualified_import_declaration_returns_none_with_leading_dot() {
+        let source = SourceText::new("import .io;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Dot);
+    }
+
+    #[test]
+    fn parser_qualified_import_declaration_returns_none_with_consecutive_dots() {
+        let source = SourceText::new("import standard..io;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Dot);
+    }
+
+    #[test]
     fn parser_import_declaration_returns_none_without_identifier() {
         let source = SourceText::new("import;");
         let mut parser = Parser::new(&source);
