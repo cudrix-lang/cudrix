@@ -121,6 +121,7 @@ impl<'source> Parser<'source> {
         Some(ImportDeclarationSyntax::new(
             import_keyword,
             identifier_token,
+            Vec::new(),
             semicolon_token,
         ))
     }

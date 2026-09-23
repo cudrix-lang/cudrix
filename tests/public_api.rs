@@ -636,8 +636,12 @@ fn cudrix_exposes_import_declaration_syntax() {
     let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 9));
     let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(16, 1));
 
-    let declaration =
-        ImportDeclarationSyntax::new(import_keyword, identifier_token, semicolon_token);
+    let declaration = ImportDeclarationSyntax::new(
+        import_keyword,
+        identifier_token,
+        Vec::new(),
+        semicolon_token,
+    );
 
     assert_eq!(declaration.import_keyword(), import_keyword);
     assert_eq!(declaration.identifier_token(), identifier_token);

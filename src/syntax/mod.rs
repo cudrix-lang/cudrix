@@ -803,17 +803,47 @@ impl ModuleDeclarationSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct QualifiedImportNameSegmentSyntax {
+    dot_token: Token,
+    identifier_token: Token,
+}
+
+impl QualifiedImportNameSegmentSyntax {
+    pub fn new(dot_token: Token, identifier_token: Token) -> Self {
+        Self {
+            dot_token,
+            identifier_token,
+        }
+    }
+
+    pub fn dot_token(&self) -> Token {
+        self.dot_token
+    }
+
+    pub fn identifier_token(&self) -> Token {
+        self.identifier_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportDeclarationSyntax {
     import_keyword: Token,
     identifier_token: Token,
+    qualified_name_segments: Vec<QualifiedImportNameSegmentSyntax>,
     semicolon_token: Token,
 }
 
 impl ImportDeclarationSyntax {
-    pub fn new(import_keyword: Token, identifier_token: Token, semicolon_token: Token) -> Self {
+    pub fn new(
+        import_keyword: Token,
+        identifier_token: Token,
+        qualified_name_segments: Vec<QualifiedImportNameSegmentSyntax>,
+        semicolon_token: Token,
+    ) -> Self {
         Self {
             import_keyword,
             identifier_token,
+            qualified_name_segments,
             semicolon_token,
         }
     }
@@ -824,6 +854,10 @@ impl ImportDeclarationSyntax {
 
     pub fn identifier_token(&self) -> Token {
         self.identifier_token
+    }
+
+    pub fn qualified_name_segments(&self) -> &[QualifiedImportNameSegmentSyntax] {
+        &self.qualified_name_segments
     }
 
     pub fn semicolon_token(&self) -> Token {
@@ -1458,8 +1492,12 @@ mod tests {
         let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 9));
         let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(16, 1));
 
-        let declaration =
-            ImportDeclarationSyntax::new(import_keyword, identifier_token, semicolon_token);
+        let declaration = ImportDeclarationSyntax::new(
+            import_keyword,
+            identifier_token,
+            Vec::new(),
+            semicolon_token,
+        );
 
         assert_eq!(declaration.import_keyword(), import_keyword);
         assert_eq!(declaration.identifier_token(), identifier_token);
