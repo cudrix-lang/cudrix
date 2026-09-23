@@ -10,8 +10,8 @@ use crate::syntax::{
     ImportDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, ModuleDeclarationSyntax, NameExpressionSyntax,
     ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
-    ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
-    VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    QualifiedImportNameSegmentSyntax, ReturnStatementSyntax, StatementSyntax,
+    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 pub struct Parser<'source> {
@@ -111,6 +111,25 @@ impl<'source> Parser<'source> {
         let identifier_token = self.current_token;
         self.advance();
 
+        let mut qualified_name_segments = Vec::new();
+
+        while self.current_token.kind() == TokenKind::Dot {
+            let dot_token = self.current_token;
+            self.advance();
+
+            if self.current_token.kind() != TokenKind::Identifier {
+                return None;
+            }
+
+            let identifier_token = self.current_token;
+            self.advance();
+
+            qualified_name_segments.push(QualifiedImportNameSegmentSyntax::new(
+                dot_token,
+                identifier_token,
+            ));
+        }
+
         if self.current_token.kind() != TokenKind::Semicolon {
             return None;
         }
@@ -121,7 +140,7 @@ impl<'source> Parser<'source> {
         Some(ImportDeclarationSyntax::new(
             import_keyword,
             identifier_token,
-            Vec::new(),
+            qualified_name_segments,
             semicolon_token,
         ))
     }
@@ -5010,6 +5029,120 @@ mod tests {
             TokenKind::ImportKeyword
         );
         assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_two_segment_qualified_import_declaration() {
+        let source = SourceText::new("import standard.io;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected qualified import declaration");
+
+        assert_eq!(
+            declaration.import_keyword().kind(),
+            TokenKind::ImportKeyword
+        );
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(declaration.identifier_token().span(), SourceSpan::new(7, 8));
+
+        assert_eq!(declaration.qualified_name_segments().len(), 1);
+
+        let segment = &declaration.qualified_name_segments()[0];
+
+        assert_eq!(segment.dot_token().kind(), TokenKind::Dot);
+        assert_eq!(segment.dot_token().span(), SourceSpan::new(15, 1));
+        assert_eq!(segment.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(segment.identifier_token().span(), SourceSpan::new(16, 2));
+
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_multi_segment_qualified_import_declaration() {
+        let source = SourceText::new("import application.graphics.rendering;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected qualified import declaration");
+
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(
+            declaration.identifier_token().span(),
+            SourceSpan::new(7, 11)
+        );
+
+        assert_eq!(declaration.qualified_name_segments().len(), 2);
+
+        let graphics_segment = &declaration.qualified_name_segments()[0];
+        assert_eq!(graphics_segment.dot_token().kind(), TokenKind::Dot);
+        assert_eq!(graphics_segment.dot_token().span(), SourceSpan::new(18, 1));
+        assert_eq!(
+            graphics_segment.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            graphics_segment.identifier_token().span(),
+            SourceSpan::new(19, 8)
+        );
+
+        let rendering_segment = &declaration.qualified_name_segments()[1];
+        assert_eq!(rendering_segment.dot_token().kind(), TokenKind::Dot);
+        assert_eq!(rendering_segment.dot_token().span(), SourceSpan::new(27, 1));
+        assert_eq!(
+            rendering_segment.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            rendering_segment.identifier_token().span(),
+            SourceSpan::new(28, 9)
+        );
+
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_qualified_import_declaration_skips_trivia_around_dots() {
+        let source = SourceText::new(
+            "import standard /* before dot */ . /* after dot */ io /* next */ . rendering;",
+        );
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected qualified import declaration");
+
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(declaration.qualified_name_segments().len(), 2);
+
+        assert_eq!(
+            declaration.qualified_name_segments()[0].dot_token().kind(),
+            TokenKind::Dot
+        );
+        assert_eq!(
+            declaration.qualified_name_segments()[0]
+                .identifier_token()
+                .kind(),
+            TokenKind::Identifier
+        );
+
+        assert_eq!(
+            declaration.qualified_name_segments()[1].dot_token().kind(),
+            TokenKind::Dot
+        );
+        assert_eq!(
+            declaration.qualified_name_segments()[1]
+                .identifier_token()
+                .kind(),
+            TokenKind::Identifier
+        );
+
         assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
