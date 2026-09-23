@@ -9,8 +9,8 @@ use cudrix::syntax::{
     ImportDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, ModuleDeclarationSyntax, NameExpressionSyntax,
     ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
-    ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
-    VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    QualifiedImportNameSegmentSyntax, ReturnStatementSyntax, StatementSyntax,
+    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 #[test]
@@ -633,18 +633,34 @@ fn cudrix_exposes_module_declaration_syntax() {
 #[test]
 fn cudrix_exposes_import_declaration_syntax() {
     let import_keyword = Token::new(TokenKind::ImportKeyword, SourceSpan::new(0, 6));
-    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 9));
-    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(16, 1));
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 8));
+    let dot_token = Token::new(TokenKind::Dot, SourceSpan::new(15, 1));
+    let qualified_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(16, 2));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(18, 1));
+
+    let qualified_name_segments = vec![QualifiedImportNameSegmentSyntax::new(
+        dot_token,
+        qualified_identifier_token,
+    )];
 
     let declaration = ImportDeclarationSyntax::new(
         import_keyword,
         identifier_token,
-        Vec::new(),
+        qualified_name_segments,
         semicolon_token,
     );
 
     assert_eq!(declaration.import_keyword(), import_keyword);
     assert_eq!(declaration.identifier_token(), identifier_token);
+    assert_eq!(declaration.qualified_name_segments().len(), 1);
+    assert_eq!(
+        declaration.qualified_name_segments()[0].dot_token(),
+        dot_token
+    );
+    assert_eq!(
+        declaration.qualified_name_segments()[0].identifier_token(),
+        qualified_identifier_token
+    );
     assert_eq!(declaration.semicolon_token(), semicolon_token);
 }
 
@@ -1270,6 +1286,35 @@ fn cudrix_parser_exposes_import_declaration_parsing() {
         TokenKind::ImportKeyword
     );
     assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+    assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_qualified_import_declaration_parsing() {
+    let source = SourceText::new("import standard.io;");
+    let mut parser = Parser::new(&source);
+
+    let declaration = parser
+        .parse_import_declaration()
+        .expect("expected qualified import declaration");
+
+    assert_eq!(
+        declaration.import_keyword().kind(),
+        TokenKind::ImportKeyword
+    );
+    assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+    assert_eq!(declaration.qualified_name_segments().len(), 1);
+    assert_eq!(
+        declaration.qualified_name_segments()[0].dot_token().kind(),
+        TokenKind::Dot
+    );
+    assert_eq!(
+        declaration.qualified_name_segments()[0]
+            .identifier_token()
+            .kind(),
+        TokenKind::Identifier
+    );
     assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
