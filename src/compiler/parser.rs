@@ -7,7 +7,7 @@ use crate::syntax::{
     CallExpressionSyntax, CompilationUnitSyntax, ConditionalExpressionSyntax,
     ConditionalStatementSyntax, ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax,
     ExpressionSyntax, ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax,
-    ImportDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    ImportAliasSyntax, ImportDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, ModuleDeclarationSyntax, NameExpressionSyntax,
     ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
     QualifiedImportNameSegmentSyntax, ReturnStatementSyntax, StatementSyntax,
@@ -130,6 +130,22 @@ impl<'source> Parser<'source> {
             ));
         }
 
+        let alias = if self.current_token.kind() == TokenKind::AsKeyword {
+            let as_keyword = self.current_token;
+            self.advance();
+
+            if self.current_token.kind() != TokenKind::Identifier {
+                return None;
+            }
+
+            let identifier_token = self.current_token;
+            self.advance();
+
+            Some(ImportAliasSyntax::new(as_keyword, identifier_token))
+        } else {
+            None
+        };
+
         if self.current_token.kind() != TokenKind::Semicolon {
             return None;
         }
@@ -141,7 +157,7 @@ impl<'source> Parser<'source> {
             import_keyword,
             identifier_token,
             qualified_name_segments,
-            None,
+            alias,
             semicolon_token,
         ))
     }
@@ -5082,6 +5098,34 @@ mod tests {
             TokenKind::ImportKeyword
         );
         assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert!(declaration.alias().is_none());
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_simple_import_alias() {
+        let source = SourceText::new("import utilities as utils;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected aliased import declaration");
+
+        assert_eq!(
+            declaration.import_keyword().kind(),
+            TokenKind::ImportKeyword
+        );
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert!(declaration.qualified_name_segments().is_empty());
+
+        let alias = declaration.alias().expect("expected import alias");
+
+        assert_eq!(alias.as_keyword().kind(), TokenKind::AsKeyword);
+        assert_eq!(alias.as_keyword().span(), SourceSpan::new(17, 2));
+        assert_eq!(alias.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(alias.identifier_token().span(), SourceSpan::new(20, 5));
+
         assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
@@ -5111,6 +5155,7 @@ mod tests {
         assert_eq!(segment.identifier_token().kind(), TokenKind::Identifier);
         assert_eq!(segment.identifier_token().span(), SourceSpan::new(16, 2));
 
+        assert!(declaration.alias().is_none());
         assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
@@ -5156,6 +5201,57 @@ mod tests {
             SourceSpan::new(28, 9)
         );
 
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_qualified_import_alias() {
+        let source = SourceText::new("import standard.io as io;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected aliased qualified import declaration");
+
+        assert_eq!(declaration.identifier_token().span(), SourceSpan::new(7, 8));
+        assert_eq!(declaration.qualified_name_segments().len(), 1);
+
+        let segment = &declaration.qualified_name_segments()[0];
+
+        assert_eq!(segment.dot_token().kind(), TokenKind::Dot);
+        assert_eq!(segment.dot_token().span(), SourceSpan::new(15, 1));
+        assert_eq!(segment.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(segment.identifier_token().span(), SourceSpan::new(16, 2));
+
+        let alias = declaration.alias().expect("expected import alias");
+
+        assert_eq!(alias.as_keyword().kind(), TokenKind::AsKeyword);
+        assert_eq!(alias.as_keyword().span(), SourceSpan::new(19, 2));
+        assert_eq!(alias.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(alias.identifier_token().span(), SourceSpan::new(22, 2));
+
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_import_alias_skips_trivia() {
+        let source = SourceText::new(
+            "import standard.io /* before as */ as /* before alias */ io /* before semicolon */ ;",
+        );
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected aliased import declaration");
+
+        assert_eq!(declaration.qualified_name_segments().len(), 1);
+
+        let alias = declaration.alias().expect("expected import alias");
+
+        assert_eq!(alias.as_keyword().kind(), TokenKind::AsKeyword);
+        assert_eq!(alias.identifier_token().kind(), TokenKind::Identifier);
         assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
     }
