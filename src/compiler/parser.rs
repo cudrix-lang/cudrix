@@ -4795,6 +4795,58 @@ mod tests {
     }
 
     #[test]
+    fn parser_parses_compilation_unit_with_qualified_import_declarations() {
+        let source = SourceText::new(
+            "module application; import standard.io; import application.graphics.rendering; function main() {}",
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.module_declaration().is_some());
+        assert_eq!(compilation_unit.import_declarations().len(), 2);
+
+        let standard_io = &compilation_unit.import_declarations()[0];
+        assert_eq!(standard_io.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(standard_io.qualified_name_segments().len(), 1);
+        assert_eq!(
+            standard_io.qualified_name_segments()[0]
+                .identifier_token()
+                .kind(),
+            TokenKind::Identifier
+        );
+
+        let application_graphics_rendering = &compilation_unit.import_declarations()[1];
+        assert_eq!(
+            application_graphics_rendering.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            application_graphics_rendering
+                .qualified_name_segments()
+                .len(),
+            2
+        );
+        assert_eq!(
+            application_graphics_rendering.qualified_name_segments()[0]
+                .identifier_token()
+                .kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            application_graphics_rendering.qualified_name_segments()[1]
+                .identifier_token()
+                .kind(),
+            TokenKind::Identifier
+        );
+
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_compilation_unit_rejects_import_declaration_after_function_declaration() {
         let source = SourceText::new("function main() {} import utilities;");
         let mut parser = Parser::new(&source);
