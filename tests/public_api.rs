@@ -6,10 +6,11 @@ use cudrix::syntax::{
     CallExpressionSyntax, CompilationUnitSyntax, ConditionalExpressionSyntax,
     ConditionalStatementSyntax, ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax,
     ExpressionSyntax, ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax,
-    IndexExpressionSyntax, LiteralExpressionSyntax, MemberAccessExpressionSyntax,
-    ModuleDeclarationSyntax, NameExpressionSyntax, ObjectLiteralExpressionSyntax,
-    ObjectMemberSyntax, ParenthesizedExpressionSyntax, ReturnStatementSyntax, StatementSyntax,
-    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    ImportDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    MemberAccessExpressionSyntax, ModuleDeclarationSyntax, NameExpressionSyntax,
+    ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
+    ReturnStatementSyntax, StatementSyntax, UnaryExpressionSyntax,
+    VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 #[test]
@@ -630,6 +631,20 @@ fn cudrix_exposes_module_declaration_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_import_declaration_syntax() {
+    let import_keyword = Token::new(TokenKind::ImportKeyword, SourceSpan::new(0, 6));
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 9));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(16, 1));
+
+    let declaration =
+        ImportDeclarationSyntax::new(import_keyword, identifier_token, semicolon_token);
+
+    assert_eq!(declaration.import_keyword(), import_keyword);
+    assert_eq!(declaration.identifier_token(), identifier_token);
+    assert_eq!(declaration.semicolon_token(), semicolon_token);
+}
+
+#[test]
 fn cudrix_exposes_function_declaration_syntax() {
     let function_keyword = Token::new(TokenKind::FunctionKeyword, SourceSpan::new(0, 8));
     let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(9, 3));
@@ -690,6 +705,7 @@ fn cudrix_exposes_compilation_unit_syntax() {
     let compilation_unit =
         CompilationUnitSyntax::new(None, Vec::new(), Vec::new(), end_of_file_token);
 
+    assert!(compilation_unit.import_declarations().is_empty());
     assert!(compilation_unit.function_declarations().is_empty());
     assert_eq!(compilation_unit.end_of_file_token(), end_of_file_token);
 }
@@ -1237,6 +1253,24 @@ fn cudrix_parser_exposes_module_declaration_parsing() {
 }
 
 #[test]
+fn cudrix_parser_exposes_import_declaration_parsing() {
+    let source = SourceText::new("import utilities;");
+    let mut parser = Parser::new(&source);
+
+    let declaration = parser
+        .parse_import_declaration()
+        .expect("expected import declaration");
+
+    assert_eq!(
+        declaration.import_keyword().kind(),
+        TokenKind::ImportKeyword
+    );
+    assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+    assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
 fn cudrix_parser_exposes_function_declaration_parsing() {
     let source = SourceText::new("function add(first, second) { return first + second; }");
     let mut parser = Parser::new(&source);
@@ -1300,6 +1334,9 @@ fn cudrix_parser_exposes_compilation_unit_parsing() {
         r#"
         module application;
 
+        import utilities;
+        import graphics;
+
         function first() {
         }
 
@@ -1329,6 +1366,26 @@ fn cudrix_parser_exposes_compilation_unit_parsing() {
     assert_eq!(
         module_declaration.semicolon_token().kind(),
         TokenKind::Semicolon
+    );
+
+    assert_eq!(compilation_unit.import_declarations().len(), 2);
+    assert_eq!(
+        compilation_unit.import_declarations()[0]
+            .import_keyword()
+            .kind(),
+        TokenKind::ImportKeyword
+    );
+    assert_eq!(
+        compilation_unit.import_declarations()[0]
+            .identifier_token()
+            .kind(),
+        TokenKind::Identifier
+    );
+    assert_eq!(
+        compilation_unit.import_declarations()[1]
+            .identifier_token()
+            .kind(),
+        TokenKind::Identifier
     );
 
     assert_eq!(compilation_unit.function_declarations().len(), 2);
