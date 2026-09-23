@@ -17,6 +17,7 @@ pub enum TokenKind {
     FunctionKeyword,
     ModuleKeyword,
     ImportKeyword,
+    AsKeyword,
     ImplementationKeyword,
 
     ReturnKeyword,
@@ -355,6 +356,7 @@ impl<'source> Lexer<'source> {
             "function" => TokenKind::FunctionKeyword,
             "module" => TokenKind::ModuleKeyword,
             "import" => TokenKind::ImportKeyword,
+            "as" => TokenKind::AsKeyword,
             "implementation" => TokenKind::ImplementationKeyword,
 
             "return" => TokenKind::ReturnKeyword,
@@ -819,6 +821,7 @@ mod tests {
             ("function", TokenKind::FunctionKeyword),
             ("module", TokenKind::ModuleKeyword),
             ("import", TokenKind::ImportKeyword),
+            ("as", TokenKind::AsKeyword),
             ("implementation", TokenKind::ImplementationKeyword),
             ("return", TokenKind::ReturnKeyword),
             ("if", TokenKind::IfKeyword),
@@ -852,6 +855,8 @@ mod tests {
             "ELSE",
             "Import",
             "IMPORT",
+            "As",
+            "AS",
             "Implementation",
         ] {
             let source = SourceText::new(source_text);
@@ -871,6 +876,9 @@ mod tests {
             "if_value",
             "elseif2",
             "true_value",
+            "as2",
+            "aside",
+            "as_value",
             "implementation2",
         ] {
             let source = SourceText::new(source_text);
