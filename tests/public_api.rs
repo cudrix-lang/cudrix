@@ -6,7 +6,7 @@ use cudrix::syntax::{
     CallExpressionSyntax, CompilationUnitSyntax, ConditionalExpressionSyntax,
     ConditionalStatementSyntax, ElseClauseSyntax, ElseIfClauseSyntax, ExpressionStatementSyntax,
     ExpressionSyntax, ForStatementSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax,
-    ImportDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
+    ImportAliasSyntax, ImportDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, ModuleDeclarationSyntax, NameExpressionSyntax,
     ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
     QualifiedImportNameSegmentSyntax, ReturnStatementSyntax, StatementSyntax,
@@ -628,6 +628,17 @@ fn cudrix_exposes_module_declaration_syntax() {
     assert_eq!(declaration.module_keyword(), module_keyword);
     assert_eq!(declaration.identifier_token(), identifier_token);
     assert_eq!(declaration.semicolon_token(), semicolon_token);
+}
+
+#[test]
+fn cudrix_exposes_import_alias_syntax() {
+    let as_keyword = Token::new(TokenKind::AsKeyword, SourceSpan::new(0, 2));
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(3, 2));
+
+    let alias = ImportAliasSyntax::new(as_keyword, identifier_token);
+
+    assert_eq!(alias.as_keyword(), as_keyword);
+    assert_eq!(alias.identifier_token(), identifier_token);
 }
 
 #[test]
@@ -1317,6 +1328,30 @@ fn cudrix_parser_exposes_qualified_import_declaration_parsing() {
             .kind(),
         TokenKind::Identifier
     );
+    assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_import_alias_declaration_parsing() {
+    let source = SourceText::new("import standard.io as io;");
+    let mut parser = Parser::new(&source);
+
+    let declaration = parser
+        .parse_import_declaration()
+        .expect("expected aliased import declaration");
+
+    assert_eq!(
+        declaration.import_keyword().kind(),
+        TokenKind::ImportKeyword
+    );
+    assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+    assert_eq!(declaration.qualified_name_segments().len(), 1);
+
+    let alias = declaration.alias().expect("expected import alias");
+
+    assert_eq!(alias.as_keyword().kind(), TokenKind::AsKeyword);
+    assert_eq!(alias.identifier_token().kind(), TokenKind::Identifier);
     assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
