@@ -659,6 +659,7 @@ fn cudrix_exposes_import_declaration_syntax() {
         identifier_token,
         qualified_name_segments,
         None,
+        None,
         semicolon_token,
     );
 

@@ -826,6 +826,69 @@ impl QualifiedImportNameSegmentSyntax {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectiveImportMemberSyntax {
+    identifier_token: Token,
+    comma_token: Option<Token>,
+}
+
+impl SelectiveImportMemberSyntax {
+    pub fn new(identifier_token: Token, comma_token: Option<Token>) -> Self {
+        Self {
+            identifier_token,
+            comma_token,
+        }
+    }
+
+    pub fn identifier_token(&self) -> Token {
+        self.identifier_token
+    }
+
+    pub fn comma_token(&self) -> Option<Token> {
+        self.comma_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SelectiveImportClauseSyntax {
+    dot_token: Token,
+    left_brace_token: Token,
+    members: Vec<SelectiveImportMemberSyntax>,
+    right_brace_token: Token,
+}
+
+impl SelectiveImportClauseSyntax {
+    pub fn new(
+        dot_token: Token,
+        left_brace_token: Token,
+        members: Vec<SelectiveImportMemberSyntax>,
+        right_brace_token: Token,
+    ) -> Self {
+        Self {
+            dot_token,
+            left_brace_token,
+            members,
+            right_brace_token,
+        }
+    }
+
+    pub fn dot_token(&self) -> Token {
+        self.dot_token
+    }
+
+    pub fn left_brace_token(&self) -> Token {
+        self.left_brace_token
+    }
+
+    pub fn members(&self) -> &[SelectiveImportMemberSyntax] {
+        &self.members
+    }
+
+    pub fn right_brace_token(&self) -> Token {
+        self.right_brace_token
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ImportAliasSyntax {
     as_keyword: Token,
     identifier_token: Token,
@@ -854,6 +917,7 @@ pub struct ImportDeclarationSyntax {
     identifier_token: Token,
     qualified_name_segments: Vec<QualifiedImportNameSegmentSyntax>,
     alias: Option<ImportAliasSyntax>,
+    selective_import_clause: Option<SelectiveImportClauseSyntax>,
     semicolon_token: Token,
 }
 
@@ -863,6 +927,7 @@ impl ImportDeclarationSyntax {
         identifier_token: Token,
         qualified_name_segments: Vec<QualifiedImportNameSegmentSyntax>,
         alias: Option<ImportAliasSyntax>,
+        selective_import_clause: Option<SelectiveImportClauseSyntax>,
         semicolon_token: Token,
     ) -> Self {
         Self {
@@ -870,6 +935,7 @@ impl ImportDeclarationSyntax {
             identifier_token,
             qualified_name_segments,
             alias,
+            selective_import_clause,
             semicolon_token,
         }
     }
@@ -888,6 +954,10 @@ impl ImportDeclarationSyntax {
 
     pub fn alias(&self) -> Option<&ImportAliasSyntax> {
         self.alias.as_ref()
+    }
+
+    pub fn selective_import_clause(&self) -> Option<&SelectiveImportClauseSyntax> {
+        self.selective_import_clause.as_ref()
     }
 
     pub fn semicolon_token(&self) -> Token {
@@ -1549,6 +1619,7 @@ mod tests {
             identifier_token,
             qualified_name_segments,
             Some(alias),
+            None,
             semicolon_token,
         );
 
@@ -1568,6 +1639,7 @@ mod tests {
             import_keyword,
             identifier_token,
             Vec::new(),
+            None,
             None,
             semicolon_token,
         );

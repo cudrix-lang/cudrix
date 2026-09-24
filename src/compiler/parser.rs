@@ -158,6 +158,7 @@ impl<'source> Parser<'source> {
             identifier_token,
             qualified_name_segments,
             alias,
+            None,
             semicolon_token,
         ))
     }
