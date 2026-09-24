@@ -4864,6 +4864,86 @@ mod tests {
     }
 
     #[test]
+    fn parser_parses_compilation_unit_with_aliased_import_declarations() {
+        let source = SourceText::new(
+            "module application; import standard.io as io; import application.graphics.rendering as rendering; function main() {}",
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.module_declaration().is_some());
+        assert_eq!(compilation_unit.import_declarations().len(), 2);
+
+        let standard_io = &compilation_unit.import_declarations()[0];
+
+        assert_eq!(standard_io.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(standard_io.qualified_name_segments().len(), 1);
+
+        let standard_io_alias = standard_io.alias().expect("expected import alias");
+
+        assert_eq!(standard_io_alias.as_keyword().kind(), TokenKind::AsKeyword);
+        assert_eq!(
+            standard_io_alias.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+
+        let application_graphics_rendering = &compilation_unit.import_declarations()[1];
+
+        assert_eq!(
+            application_graphics_rendering.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            application_graphics_rendering
+                .qualified_name_segments()
+                .len(),
+            2
+        );
+
+        let rendering_alias = application_graphics_rendering
+            .alias()
+            .expect("expected import alias");
+
+        assert_eq!(rendering_alias.as_keyword().kind(), TokenKind::AsKeyword);
+        assert_eq!(
+            rendering_alias.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_compilation_unit_accepts_mixed_aliased_and_unaliased_imports() {
+        let source =
+            SourceText::new("import standard.io as io; import standard.math; function main() {}");
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert_eq!(compilation_unit.import_declarations().len(), 2);
+
+        let aliased_import = &compilation_unit.import_declarations()[0];
+
+        assert_eq!(aliased_import.qualified_name_segments().len(), 1);
+        assert!(aliased_import.alias().is_some());
+
+        let unaliased_import = &compilation_unit.import_declarations()[1];
+
+        assert_eq!(unaliased_import.qualified_name_segments().len(), 1);
+        assert!(unaliased_import.alias().is_none());
+
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_compilation_unit_rejects_import_declaration_after_function_declaration() {
         let source = SourceText::new("function main() {} import utilities;");
         let mut parser = Parser::new(&source);
