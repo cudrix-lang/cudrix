@@ -5324,6 +5324,33 @@ mod tests {
     }
 
     #[test]
+    fn parser_import_alias_returns_none_without_identifier() {
+        let source = SourceText::new("import standard.io as;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_import_alias_returns_none_with_non_identifier_alias() {
+        let source = SourceText::new("import standard.io as 42;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Number);
+    }
+
+    #[test]
+    fn parser_import_alias_returns_none_with_dot_before_alias_identifier() {
+        let source = SourceText::new("import standard.io as .alias;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Dot);
+    }
+
+    #[test]
     fn parser_import_declaration_returns_none_without_identifier() {
         let source = SourceText::new("import;");
         let mut parser = Parser::new(&source);
