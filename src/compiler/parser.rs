@@ -10,8 +10,9 @@ use crate::syntax::{
     ImportAliasSyntax, ImportDeclarationSyntax, IndexExpressionSyntax, LiteralExpressionSyntax,
     MemberAccessExpressionSyntax, ModuleDeclarationSyntax, NameExpressionSyntax,
     ObjectLiteralExpressionSyntax, ObjectMemberSyntax, ParenthesizedExpressionSyntax,
-    QualifiedImportNameSegmentSyntax, ReturnStatementSyntax, StatementSyntax,
-    UnaryExpressionSyntax, VariableDeclarationStatementSyntax, WhileStatementSyntax,
+    QualifiedImportNameSegmentSyntax, ReturnStatementSyntax, SelectiveImportClauseSyntax,
+    SelectiveImportMemberSyntax, StatementSyntax, UnaryExpressionSyntax,
+    VariableDeclarationStatementSyntax, WhileStatementSyntax,
 };
 
 pub struct Parser<'source> {
@@ -112,10 +113,64 @@ impl<'source> Parser<'source> {
         self.advance();
 
         let mut qualified_name_segments = Vec::new();
+        let mut selective_import_clause = None;
 
         while self.current_token.kind() == TokenKind::Dot {
             let dot_token = self.current_token;
             self.advance();
+
+            if self.current_token.kind() == TokenKind::LeftBrace {
+                let left_brace_token = self.current_token;
+                self.advance();
+
+                if self.current_token.kind() != TokenKind::Identifier {
+                    return None;
+                }
+
+                let mut members = Vec::new();
+
+                loop {
+                    if self.current_token.kind() != TokenKind::Identifier {
+                        return None;
+                    }
+
+                    let identifier_token = self.current_token;
+                    self.advance();
+
+                    let comma_token = if self.current_token.kind() == TokenKind::Comma {
+                        let comma_token = self.current_token;
+                        self.advance();
+                        Some(comma_token)
+                    } else {
+                        None
+                    };
+
+                    members.push(SelectiveImportMemberSyntax::new(
+                        identifier_token,
+                        comma_token,
+                    ));
+
+                    if comma_token.is_none() {
+                        break;
+                    }
+                }
+
+                if self.current_token.kind() != TokenKind::RightBrace {
+                    return None;
+                }
+
+                let right_brace_token = self.current_token;
+                self.advance();
+
+                selective_import_clause = Some(SelectiveImportClauseSyntax::new(
+                    dot_token,
+                    left_brace_token,
+                    members,
+                    right_brace_token,
+                ));
+
+                break;
+            }
 
             if self.current_token.kind() != TokenKind::Identifier {
                 return None;
@@ -131,6 +186,10 @@ impl<'source> Parser<'source> {
         }
 
         let alias = if self.current_token.kind() == TokenKind::AsKeyword {
+            if selective_import_clause.is_some() {
+                return None;
+            }
+
             let as_keyword = self.current_token;
             self.advance();
 
@@ -158,7 +217,7 @@ impl<'source> Parser<'source> {
             identifier_token,
             qualified_name_segments,
             alias,
-            None,
+            selective_import_clause,
             semicolon_token,
         ))
     }
@@ -4669,6 +4728,148 @@ mod tests {
 
         assert_eq!(compilation_unit.function_declarations().len(), 1);
         assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_selective_import_declaration() {
+        let source = SourceText::new("import standard.io.{read, write};");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected selective import declaration");
+
+        assert_eq!(
+            declaration.import_keyword().kind(),
+            TokenKind::ImportKeyword
+        );
+        assert_eq!(declaration.identifier_token().span(), SourceSpan::new(7, 8));
+        assert_eq!(declaration.qualified_name_segments().len(), 1);
+
+        let segment = &declaration.qualified_name_segments()[0];
+        assert_eq!(segment.dot_token().kind(), TokenKind::Dot);
+        assert_eq!(segment.identifier_token().kind(), TokenKind::Identifier);
+
+        assert!(declaration.alias().is_none());
+
+        let clause = declaration
+            .selective_import_clause()
+            .expect("expected selective import clause");
+
+        assert_eq!(clause.dot_token().kind(), TokenKind::Dot);
+        assert_eq!(clause.left_brace_token().kind(), TokenKind::LeftBrace);
+        assert_eq!(clause.members().len(), 2);
+
+        assert_eq!(
+            clause.members()[0].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            clause.members()[0].comma_token().unwrap().kind(),
+            TokenKind::Comma
+        );
+
+        assert_eq!(
+            clause.members()[1].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert!(clause.members()[1].comma_token().is_none());
+
+        assert_eq!(clause.right_brace_token().kind(), TokenKind::RightBrace);
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_parses_single_member_selective_import_declaration() {
+        let source = SourceText::new("import standard.io.{read};");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected selective import declaration");
+
+        let clause = declaration
+            .selective_import_clause()
+            .expect("expected selective import clause");
+
+        assert_eq!(clause.members().len(), 1);
+        assert_eq!(
+            clause.members()[0].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert!(clause.members()[0].comma_token().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_selective_import_declaration_skips_trivia() {
+        let source = SourceText::new(
+            "import standard /* before dot */ . io /* before selection */ . \
+         /* before brace */ { /* first */ read /* comma */ , \
+         /* second */ write /* before brace */ } /* semicolon */ ;",
+        );
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected selective import declaration");
+
+        assert_eq!(declaration.qualified_name_segments().len(), 1);
+
+        let clause = declaration
+            .selective_import_clause()
+            .expect("expected selective import clause");
+
+        assert_eq!(clause.members().len(), 2);
+        assert_eq!(clause.dot_token().kind(), TokenKind::Dot);
+        assert_eq!(clause.left_brace_token().kind(), TokenKind::LeftBrace);
+        assert_eq!(clause.right_brace_token().kind(), TokenKind::RightBrace);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_selective_import_declaration_returns_none_for_empty_member_list() {
+        let source = SourceText::new("import standard.io.{};");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::RightBrace);
+    }
+
+    #[test]
+    fn parser_selective_import_declaration_returns_none_for_trailing_comma() {
+        let source = SourceText::new("import standard.io.{read,};");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::RightBrace);
+    }
+
+    #[test]
+    fn parser_selective_import_declaration_returns_none_for_missing_comma() {
+        let source = SourceText::new("import standard.io.{read write};");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Identifier);
+    }
+
+    #[test]
+    fn parser_selective_import_declaration_returns_none_without_right_brace() {
+        let source = SourceText::new("import standard.io.{read, write;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::Semicolon);
+    }
+
+    #[test]
+    fn parser_selective_import_declaration_returns_none_with_declaration_alias() {
+        let source = SourceText::new("import standard.io.{read, write} as io;");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_import_declaration().is_none());
     }
 
     #[test]
