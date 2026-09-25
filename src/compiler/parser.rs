@@ -5066,6 +5066,115 @@ mod tests {
     }
 
     #[test]
+    fn parser_parses_compilation_unit_with_selective_import_declarations() {
+        let source = SourceText::new(
+            "module application; import standard.io.{read, write}; import application.graphics.rendering.{draw, clear}; function main() {}",
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.module_declaration().is_some());
+        assert_eq!(compilation_unit.import_declarations().len(), 2);
+
+        let standard_io = &compilation_unit.import_declarations()[0];
+
+        assert_eq!(standard_io.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(standard_io.qualified_name_segments().len(), 1);
+        assert!(standard_io.alias().is_none());
+
+        let standard_io_clause = standard_io
+            .selective_import_clause()
+            .expect("expected selective import clause");
+
+        assert_eq!(standard_io_clause.members().len(), 2);
+        assert_eq!(
+            standard_io_clause.members()[0].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            standard_io_clause.members()[1].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+
+        let application_graphics_rendering = &compilation_unit.import_declarations()[1];
+
+        assert_eq!(
+            application_graphics_rendering.identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            application_graphics_rendering
+                .qualified_name_segments()
+                .len(),
+            2
+        );
+        assert!(application_graphics_rendering.alias().is_none());
+
+        let rendering_clause = application_graphics_rendering
+            .selective_import_clause()
+            .expect("expected selective import clause");
+
+        assert_eq!(rendering_clause.members().len(), 2);
+        assert_eq!(
+            rendering_clause.members()[0].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+        assert_eq!(
+            rendering_clause.members()[1].identifier_token().kind(),
+            TokenKind::Identifier
+        );
+
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_compilation_unit_accepts_mixed_import_forms() {
+        let source = SourceText::new(
+            "module application; import utilities; import standard.math; import standard.io as io; import application.graphics.{draw, clear}; function main() {}",
+        );
+        let mut parser = Parser::new(&source);
+
+        let compilation_unit = parser
+            .parse_compilation_unit()
+            .expect("expected compilation unit");
+
+        assert!(compilation_unit.module_declaration().is_some());
+        assert_eq!(compilation_unit.import_declarations().len(), 4);
+
+        let simple_import = &compilation_unit.import_declarations()[0];
+        assert!(simple_import.qualified_name_segments().is_empty());
+        assert!(simple_import.alias().is_none());
+        assert!(simple_import.selective_import_clause().is_none());
+
+        let qualified_import = &compilation_unit.import_declarations()[1];
+        assert_eq!(qualified_import.qualified_name_segments().len(), 1);
+        assert!(qualified_import.alias().is_none());
+        assert!(qualified_import.selective_import_clause().is_none());
+
+        let aliased_import = &compilation_unit.import_declarations()[2];
+        assert_eq!(aliased_import.qualified_name_segments().len(), 1);
+        assert!(aliased_import.alias().is_some());
+        assert!(aliased_import.selective_import_clause().is_none());
+
+        let selective_import = &compilation_unit.import_declarations()[3];
+        assert_eq!(selective_import.qualified_name_segments().len(), 1);
+        assert!(selective_import.alias().is_none());
+
+        let selective_clause = selective_import
+            .selective_import_clause()
+            .expect("expected selective import clause");
+
+        assert_eq!(selective_clause.members().len(), 2);
+
+        assert_eq!(compilation_unit.function_declarations().len(), 1);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
     fn parser_parses_compilation_unit_with_aliased_import_declarations() {
         let source = SourceText::new(
             "module application; import standard.io as io; import application.graphics.rendering as rendering; function main() {}",
