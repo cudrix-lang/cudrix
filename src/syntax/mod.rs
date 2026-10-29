@@ -1630,6 +1630,74 @@ mod tests {
     }
 
     #[test]
+    fn import_declaration_preserves_selective_clause() {
+        let import_keyword = Token::new(TokenKind::ImportKeyword, SourceSpan::new(0, 6));
+        let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 8));
+        let qualified_dot_token = Token::new(TokenKind::Dot, SourceSpan::new(15, 1));
+        let qualified_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(16, 2));
+        let selective_dot_token = Token::new(TokenKind::Dot, SourceSpan::new(18, 1));
+        let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(19, 1));
+        let first_member_token = Token::new(TokenKind::Identifier, SourceSpan::new(20, 4));
+        let comma_token = Token::new(TokenKind::Comma, SourceSpan::new(24, 1));
+        let second_member_token = Token::new(TokenKind::Identifier, SourceSpan::new(26, 5));
+        let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(31, 1));
+        let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(32, 1));
+
+        let qualified_name_segments = vec![QualifiedImportNameSegmentSyntax::new(
+            qualified_dot_token,
+            qualified_identifier_token,
+        )];
+
+        let members = vec![
+            SelectiveImportMemberSyntax::new(first_member_token, Some(comma_token)),
+            SelectiveImportMemberSyntax::new(second_member_token, None),
+        ];
+
+        let selective_clause = SelectiveImportClauseSyntax::new(
+            selective_dot_token,
+            left_brace_token,
+            members,
+            right_brace_token,
+        );
+
+        let declaration = ImportDeclarationSyntax::new(
+            import_keyword,
+            identifier_token,
+            qualified_name_segments,
+            None,
+            Some(selective_clause),
+            semicolon_token,
+        );
+
+        assert_eq!(declaration.import_keyword(), import_keyword);
+        assert_eq!(declaration.identifier_token(), identifier_token);
+        assert_eq!(declaration.qualified_name_segments().len(), 1);
+        assert_eq!(
+            declaration.qualified_name_segments()[0].dot_token(),
+            qualified_dot_token
+        );
+        assert_eq!(
+            declaration.qualified_name_segments()[0].identifier_token(),
+            qualified_identifier_token
+        );
+        assert!(declaration.alias().is_none());
+
+        let clause = declaration
+            .selective_import_clause()
+            .expect("expected selective import clause");
+
+        assert_eq!(clause.dot_token(), selective_dot_token);
+        assert_eq!(clause.left_brace_token(), left_brace_token);
+        assert_eq!(clause.members().len(), 2);
+        assert_eq!(clause.members()[0].identifier_token(), first_member_token);
+        assert_eq!(clause.members()[0].comma_token(), Some(comma_token));
+        assert_eq!(clause.members()[1].identifier_token(), second_member_token);
+        assert!(clause.members()[1].comma_token().is_none());
+        assert_eq!(clause.right_brace_token(), right_brace_token);
+        assert_eq!(declaration.semicolon_token(), semicolon_token);
+    }
+
+    #[test]
     fn import_declaration_preserves_tokens() {
         let import_keyword = Token::new(TokenKind::ImportKeyword, SourceSpan::new(0, 6));
         let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 9));
