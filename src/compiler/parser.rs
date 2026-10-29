@@ -4873,6 +4873,86 @@ mod tests {
     }
 
     #[test]
+    fn parser_selective_import_does_not_change_simple_import_behavior() {
+        let source = SourceText::new("import utilities;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected import declaration");
+
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert!(declaration.qualified_name_segments().is_empty());
+        assert!(declaration.alias().is_none());
+        assert!(declaration.selective_import_clause().is_none());
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_selective_import_does_not_change_qualified_import_behavior() {
+        let source = SourceText::new("import standard.io;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected import declaration");
+
+        assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+        assert_eq!(declaration.qualified_name_segments().len(), 1);
+        assert!(declaration.alias().is_none());
+        assert!(declaration.selective_import_clause().is_none());
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_selective_import_does_not_change_aliased_import_behavior() {
+        let source = SourceText::new("import standard.io as io;");
+        let mut parser = Parser::new(&source);
+
+        let declaration = parser
+            .parse_import_declaration()
+            .expect("expected import declaration");
+
+        assert_eq!(declaration.qualified_name_segments().len(), 1);
+        assert!(declaration.alias().is_some());
+        assert!(declaration.selective_import_clause().is_none());
+        assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+        assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+    }
+
+    #[test]
+    fn parser_compilation_unit_returns_none_for_malformed_selective_import() {
+        let source =
+            SourceText::new("module application; import standard.io.{read,}; function main() {}");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::RightBrace);
+    }
+
+    #[test]
+    fn parser_compilation_unit_returns_none_for_malformed_later_selective_import() {
+        let source = SourceText::new(
+            "import standard.io.{read}; import standard.math.{add,}; function main() {}",
+        );
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::RightBrace);
+    }
+
+    #[test]
+    fn parser_compilation_unit_rejects_selective_import_after_function_declaration() {
+        let source = SourceText::new("function main() {} import standard.io.{read};");
+        let mut parser = Parser::new(&source);
+
+        assert!(parser.parse_compilation_unit().is_none());
+        assert_eq!(parser.current_token().kind(), TokenKind::ImportKeyword);
+    }
+
+    #[test]
     fn parser_compilation_unit_skips_trivia_around_import_declarations() {
         let source = SourceText::new(
             r#"
