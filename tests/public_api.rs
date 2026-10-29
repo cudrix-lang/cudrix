@@ -642,6 +642,63 @@ fn cudrix_exposes_import_alias_syntax() {
 }
 
 #[test]
+fn cudrix_exposes_selective_import_member_syntax() {
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(0, 4));
+    let comma_token = Token::new(TokenKind::Comma, SourceSpan::new(4, 1));
+
+    let member =
+        cudrix::syntax::SelectiveImportMemberSyntax::new(identifier_token, Some(comma_token));
+
+    assert_eq!(member.identifier_token(), identifier_token);
+    assert_eq!(member.comma_token(), Some(comma_token));
+
+    let final_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(6, 5));
+
+    let final_member =
+        cudrix::syntax::SelectiveImportMemberSyntax::new(final_identifier_token, None);
+
+    assert_eq!(final_member.identifier_token(), final_identifier_token);
+    assert!(final_member.comma_token().is_none());
+}
+
+#[test]
+fn cudrix_exposes_selective_import_clause_syntax() {
+    let dot_token = Token::new(TokenKind::Dot, SourceSpan::new(0, 1));
+    let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(1, 1));
+    let first_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(2, 4));
+    let comma_token = Token::new(TokenKind::Comma, SourceSpan::new(6, 1));
+    let second_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(8, 5));
+    let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(13, 1));
+
+    let members = vec![
+        cudrix::syntax::SelectiveImportMemberSyntax::new(first_identifier_token, Some(comma_token)),
+        cudrix::syntax::SelectiveImportMemberSyntax::new(second_identifier_token, None),
+    ];
+
+    let clause = cudrix::syntax::SelectiveImportClauseSyntax::new(
+        dot_token,
+        left_brace_token,
+        members,
+        right_brace_token,
+    );
+
+    assert_eq!(clause.dot_token(), dot_token);
+    assert_eq!(clause.left_brace_token(), left_brace_token);
+    assert_eq!(clause.members().len(), 2);
+    assert_eq!(
+        clause.members()[0].identifier_token(),
+        first_identifier_token
+    );
+    assert_eq!(clause.members()[0].comma_token(), Some(comma_token));
+    assert_eq!(
+        clause.members()[1].identifier_token(),
+        second_identifier_token
+    );
+    assert!(clause.members()[1].comma_token().is_none());
+    assert_eq!(clause.right_brace_token(), right_brace_token);
+}
+
+#[test]
 fn cudrix_exposes_import_declaration_syntax() {
     let import_keyword = Token::new(TokenKind::ImportKeyword, SourceSpan::new(0, 6));
     let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 8));
@@ -675,6 +732,67 @@ fn cudrix_exposes_import_declaration_syntax() {
         qualified_identifier_token
     );
     assert!(declaration.alias().is_none());
+    assert!(declaration.selective_import_clause().is_none());
+    assert_eq!(declaration.semicolon_token(), semicolon_token);
+}
+
+#[test]
+fn cudrix_exposes_import_declaration_with_selective_clause() {
+    let import_keyword = Token::new(TokenKind::ImportKeyword, SourceSpan::new(0, 6));
+    let identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(7, 8));
+    let qualified_dot_token = Token::new(TokenKind::Dot, SourceSpan::new(15, 1));
+    let qualified_identifier_token = Token::new(TokenKind::Identifier, SourceSpan::new(16, 2));
+    let selective_dot_token = Token::new(TokenKind::Dot, SourceSpan::new(18, 1));
+    let left_brace_token = Token::new(TokenKind::LeftBrace, SourceSpan::new(19, 1));
+    let first_member_token = Token::new(TokenKind::Identifier, SourceSpan::new(20, 4));
+    let comma_token = Token::new(TokenKind::Comma, SourceSpan::new(24, 1));
+    let second_member_token = Token::new(TokenKind::Identifier, SourceSpan::new(26, 5));
+    let right_brace_token = Token::new(TokenKind::RightBrace, SourceSpan::new(31, 1));
+    let semicolon_token = Token::new(TokenKind::Semicolon, SourceSpan::new(32, 1));
+
+    let qualified_name_segments = vec![QualifiedImportNameSegmentSyntax::new(
+        qualified_dot_token,
+        qualified_identifier_token,
+    )];
+
+    let members = vec![
+        cudrix::syntax::SelectiveImportMemberSyntax::new(first_member_token, Some(comma_token)),
+        cudrix::syntax::SelectiveImportMemberSyntax::new(second_member_token, None),
+    ];
+
+    let selective_clause = cudrix::syntax::SelectiveImportClauseSyntax::new(
+        selective_dot_token,
+        left_brace_token,
+        members,
+        right_brace_token,
+    );
+
+    let declaration = ImportDeclarationSyntax::new(
+        import_keyword,
+        identifier_token,
+        qualified_name_segments,
+        None,
+        Some(selective_clause),
+        semicolon_token,
+    );
+
+    assert_eq!(declaration.import_keyword(), import_keyword);
+    assert_eq!(declaration.identifier_token(), identifier_token);
+    assert_eq!(declaration.qualified_name_segments().len(), 1);
+    assert!(declaration.alias().is_none());
+
+    let clause = declaration
+        .selective_import_clause()
+        .expect("expected selective import clause");
+
+    assert_eq!(clause.dot_token(), selective_dot_token);
+    assert_eq!(clause.left_brace_token(), left_brace_token);
+    assert_eq!(clause.members().len(), 2);
+    assert_eq!(clause.members()[0].identifier_token(), first_member_token);
+    assert_eq!(clause.members()[0].comma_token(), Some(comma_token));
+    assert_eq!(clause.members()[1].identifier_token(), second_member_token);
+    assert!(clause.members()[1].comma_token().is_none());
+    assert_eq!(clause.right_brace_token(), right_brace_token);
     assert_eq!(declaration.semicolon_token(), semicolon_token);
 }
 
@@ -1358,6 +1476,54 @@ fn cudrix_parser_exposes_import_alias_declaration_parsing() {
 }
 
 #[test]
+fn cudrix_parser_exposes_selective_import_declaration_parsing() {
+    let source = SourceText::new("import standard.io.{read, write};");
+    let mut parser = Parser::new(&source);
+
+    let declaration = parser
+        .parse_import_declaration()
+        .expect("expected selective import declaration");
+
+    assert_eq!(
+        declaration.import_keyword().kind(),
+        TokenKind::ImportKeyword
+    );
+    assert_eq!(declaration.identifier_token().kind(), TokenKind::Identifier);
+    assert_eq!(declaration.qualified_name_segments().len(), 1);
+    assert!(declaration.alias().is_none());
+
+    let clause = declaration
+        .selective_import_clause()
+        .expect("expected selective import clause");
+
+    assert_eq!(clause.dot_token().kind(), TokenKind::Dot);
+    assert_eq!(clause.left_brace_token().kind(), TokenKind::LeftBrace);
+    assert_eq!(clause.members().len(), 2);
+
+    assert_eq!(
+        clause.members()[0].identifier_token().span(),
+        SourceSpan::new(20, 4)
+    );
+    assert_eq!(
+        clause.members()[0]
+            .comma_token()
+            .expect("expected comma")
+            .kind(),
+        TokenKind::Comma
+    );
+
+    assert_eq!(
+        clause.members()[1].identifier_token().span(),
+        SourceSpan::new(26, 5)
+    );
+    assert!(clause.members()[1].comma_token().is_none());
+
+    assert_eq!(clause.right_brace_token().kind(), TokenKind::RightBrace);
+    assert_eq!(declaration.semicolon_token().kind(), TokenKind::Semicolon);
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
 fn cudrix_parser_exposes_function_declaration_parsing() {
     let source = SourceText::new("function add(first, second) { return first + second; }");
     let mut parser = Parser::new(&source);
@@ -1488,6 +1654,46 @@ fn cudrix_parser_exposes_compilation_unit_parsing() {
             .len(),
         1
     );
+    assert_eq!(
+        compilation_unit.end_of_file_token().kind(),
+        TokenKind::EndOfFile
+    );
+    assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
+}
+
+#[test]
+fn cudrix_parser_exposes_compilation_unit_with_selective_import() {
+    let source =
+        SourceText::new("module application; import standard.io.{read, write}; function main() {}");
+    let mut parser = Parser::new(&source);
+
+    let compilation_unit = parser
+        .parse_compilation_unit()
+        .expect("expected compilation unit");
+
+    assert!(compilation_unit.module_declaration().is_some());
+    assert_eq!(compilation_unit.import_declarations().len(), 1);
+
+    let declaration = &compilation_unit.import_declarations()[0];
+
+    assert_eq!(declaration.qualified_name_segments().len(), 1);
+    assert!(declaration.alias().is_none());
+
+    let clause = declaration
+        .selective_import_clause()
+        .expect("expected selective import clause");
+
+    assert_eq!(clause.members().len(), 2);
+    assert_eq!(
+        clause.members()[0].identifier_token().kind(),
+        TokenKind::Identifier
+    );
+    assert_eq!(
+        clause.members()[1].identifier_token().kind(),
+        TokenKind::Identifier
+    );
+
+    assert_eq!(compilation_unit.function_declarations().len(), 1);
     assert_eq!(
         compilation_unit.end_of_file_token().kind(),
         TokenKind::EndOfFile
