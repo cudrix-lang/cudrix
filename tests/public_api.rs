@@ -1700,3 +1700,55 @@ fn cudrix_parser_exposes_compilation_unit_with_selective_import() {
     );
     assert_eq!(parser.current_token().kind(), TokenKind::EndOfFile);
 }
+
+#[test]
+fn cudrix_public_api_resolves_top_level_function_names() {
+    let source =
+        cudrix::source::SourceText::new("function main() { greet(); }\nfunction greet() {}");
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let result = cudrix::lookup_top_level_function(&compilation_unit, &source, "greet");
+
+    let Ok(cudrix::TopLevelFunctionLookup::Unique(declaration)) = result else {
+        panic!("Expected exactly one matching function");
+    };
+
+    assert_eq!(
+        source.slice(&declaration.identifier_token().span()),
+        Some("greet")
+    );
+
+    let unknown = cudrix::lookup_top_level_function(&compilation_unit, &source, "grete");
+
+    assert!(matches!(
+        unknown,
+        Ok(cudrix::TopLevelFunctionLookup::NotFound)
+    ));
+}
+
+#[test]
+fn cudrix_public_api_preserves_multiple_function_matches() {
+    let source = cudrix::source::SourceText::new("function greet() {}\nfunction greet() {}");
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let result = cudrix::lookup_top_level_function(&compilation_unit, &source, "greet");
+
+    let Ok(cudrix::TopLevelFunctionLookup::Multiple(matches)) = result else {
+        panic!("Expected multiple matching function declarations");
+    };
+
+    assert_eq!(matches.len(), 2);
+
+    for (index, declaration) in matches.iter().enumerate() {
+        assert!(std::ptr::eq(
+            *declaration,
+            &compilation_unit.function_declarations()[index]
+        ));
+    }
+}
