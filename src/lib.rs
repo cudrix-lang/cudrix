@@ -4,7 +4,10 @@ mod semantic;
 pub mod source;
 pub mod syntax;
 
-pub use semantic::{FunctionLookupError, TopLevelFunctionLookup, lookup_top_level_function};
+pub use semantic::{
+    FunctionLookupError, TopLevelFunctionLookup, lookup_direct_call_top_level_functions,
+    lookup_top_level_function,
+};
 
 pub const LANGUAGE_NAME: &str = "Cudrix";
 

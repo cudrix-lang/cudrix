@@ -1752,3 +1752,62 @@ fn cudrix_public_api_preserves_multiple_function_matches() {
         ));
     }
 }
+
+#[test]
+fn cudrix_public_api_looks_up_direct_call_top_level_function() {
+    let source =
+        cudrix::source::SourceText::new("function main() { greet(); }\nfunction greet() {}");
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let main_function = &compilation_unit.function_declarations()[0];
+
+    let cudrix::syntax::StatementSyntax::Expression(statement) =
+        &main_function.body().statements()[0]
+    else {
+        panic!("Expected an expression statement");
+    };
+
+    let cudrix::syntax::ExpressionSyntax::Call(call) = statement.expression() else {
+        panic!("Expected a call expression");
+    };
+
+    let result = cudrix::lookup_direct_call_top_level_functions(&compilation_unit, &source, call);
+
+    let Ok(Some(cudrix::TopLevelFunctionLookup::Unique(declaration))) = result else {
+        panic!("Expected one matching top-level function declaration");
+    };
+
+    assert!(std::ptr::eq(
+        declaration,
+        &compilation_unit.function_declarations()[1]
+    ));
+}
+
+#[test]
+fn cudrix_public_api_distinguishes_unsupported_call_callee() {
+    let source =
+        cudrix::source::SourceText::new("function main() { object.greet(); }\nfunction greet() {}");
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let main_function = &compilation_unit.function_declarations()[0];
+
+    let cudrix::syntax::StatementSyntax::Expression(statement) =
+        &main_function.body().statements()[0]
+    else {
+        panic!("Expected an expression statement");
+    };
+
+    let cudrix::syntax::ExpressionSyntax::Call(call) = statement.expression() else {
+        panic!("Expected a call expression");
+    };
+
+    let result = cudrix::lookup_direct_call_top_level_functions(&compilation_unit, &source, call);
+
+    assert!(matches!(result, Ok(None)));
+}
