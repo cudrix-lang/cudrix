@@ -1811,3 +1811,127 @@ fn cudrix_public_api_distinguishes_unsupported_call_callee() {
 
     assert!(matches!(result, Ok(None)));
 }
+
+#[test]
+fn cudrix_public_api_discovers_calls_and_looks_up_candidates() {
+    let source = cudrix::source::SourceText::new(
+        "function main() {\n\
+             greet();\n\
+             missing();\n\
+         }\n\
+         function greet() {}",
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    assert_eq!(discovered.len(), 2);
+
+    let names: Vec<&str> = discovered
+        .iter()
+        .map(|item| {
+            let cudrix::syntax::ExpressionSyntax::Name(name) = item.call().callee() else {
+                panic!("Expected a direct named call");
+            };
+
+            source
+                .slice(&name.identifier_token().span())
+                .expect("Identifier span should be valid")
+        })
+        .collect();
+
+    assert_eq!(names, ["greet", "missing"]);
+
+    let functions = compilation_unit.function_declarations();
+
+    for item in &discovered {
+        assert!(std::ptr::eq(item.function(), &functions[0]));
+    }
+
+    let cudrix::syntax::StatementSyntax::Expression(statement) =
+        &functions[0].body().statements()[0]
+    else {
+        panic!("Expected an expression statement");
+    };
+
+    let cudrix::syntax::ExpressionSyntax::Call(original_call) = statement.expression() else {
+        panic!("Expected a call expression");
+    };
+
+    assert!(std::ptr::eq(discovered[0].call(), original_call));
+
+    let matching = cudrix::lookup_direct_call_top_level_functions(
+        &compilation_unit,
+        &source,
+        discovered[0].call(),
+    );
+
+    let Ok(Some(cudrix::TopLevelFunctionLookup::Unique(declaration))) = matching else {
+        panic!("Expected one matching top-level function");
+    };
+
+    assert!(std::ptr::eq(declaration, &functions[1]));
+
+    let missing = cudrix::lookup_direct_call_top_level_functions(
+        &compilation_unit,
+        &source,
+        discovered[1].call(),
+    );
+
+    assert!(matches!(
+        missing,
+        Ok(Some(cudrix::TopLevelFunctionLookup::NotFound))
+    ));
+}
+
+#[test]
+fn cudrix_public_api_discovers_nested_calls_in_source_order() {
+    let source = cudrix::source::SourceText::new(
+        r#"
+function main() {
+    object.run(helper());
+    (named)();
+    get_handler()();
+    entries[index()]();
+    outer(inner());
+}
+"#,
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    let names: Vec<&str> = discovered
+        .iter()
+        .map(|item| {
+            let cudrix::syntax::ExpressionSyntax::Name(name) = item.call().callee() else {
+                panic!("Expected a direct named call");
+            };
+
+            source
+                .slice(&name.identifier_token().span())
+                .expect("Identifier span should be valid")
+        })
+        .collect();
+
+    assert_eq!(names, ["helper", "get_handler", "index", "outer", "inner"]);
+
+    let positions: Vec<usize> = discovered
+        .iter()
+        .map(|item| {
+            let cudrix::syntax::ExpressionSyntax::Name(name) = item.call().callee() else {
+                panic!("Expected a direct named call");
+            };
+
+            name.identifier_token().span().start()
+        })
+        .collect();
+
+    assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
+}
