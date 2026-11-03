@@ -1935,3 +1935,108 @@ function main() {
 
     assert!(positions.windows(2).all(|pair| pair[0] < pair[1]));
 }
+
+#[test]
+fn public_api_recognizes_enclosing_parameters_without_changing_function_candidates() {
+    let source = cudrix::source::SourceText::new(
+        "function greet() {}\n\
+         function main(greet, other) { greet(); missing(); }",
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+    let functions = compilation_unit.function_declarations();
+
+    assert_eq!(discovered.len(), 2);
+
+    assert!(std::ptr::eq(discovered[0].function(), &functions[1]));
+    assert!(std::ptr::eq(discovered[1].function(), &functions[1]));
+
+    let parameter_result =
+        cudrix::lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+    let Ok(cudrix::FunctionParameterLookup::Unique(parameter)) = parameter_result else {
+        panic!("Expected one matching enclosing function parameter");
+    };
+
+    assert!(std::ptr::eq(parameter, &functions[1].parameters()[0]));
+
+    let missing_parameter_result =
+        cudrix::lookup_direct_call_enclosing_function_parameters(discovered[1], &source);
+
+    assert!(matches!(
+        missing_parameter_result,
+        Ok(cudrix::FunctionParameterLookup::NotFound)
+    ));
+
+    let function_result = cudrix::lookup_direct_call_top_level_functions(
+        &compilation_unit,
+        &source,
+        discovered[0].call(),
+    );
+
+    let Ok(Some(cudrix::TopLevelFunctionLookup::Unique(declaration))) = function_result else {
+        panic!("Expected one matching top-level function candidate");
+    };
+
+    assert!(std::ptr::eq(declaration, &functions[0]));
+}
+
+#[test]
+fn public_api_preserves_multiple_enclosing_parameter_matches() {
+    let source = cudrix::source::SourceText::new("function main(value, other, value) { value(); }");
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    assert_eq!(discovered.len(), 1);
+
+    let result = cudrix::lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+    let Ok(cudrix::FunctionParameterLookup::Multiple(matches)) = result else {
+        panic!("Expected multiple matching parameter declarations");
+    };
+
+    assert_eq!(matches.len(), 2);
+
+    let parameters = compilation_unit.function_declarations()[0].parameters();
+
+    assert!(std::ptr::eq(matches[0], &parameters[0]));
+    assert!(std::ptr::eq(matches[1], &parameters[2]));
+}
+
+#[test]
+fn public_api_reports_invalid_parameter_lookup_identifier_span() {
+    let source = cudrix::source::SourceText::new("function main(value) { value(); }");
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    assert_eq!(discovered.len(), 1);
+
+    let cudrix::syntax::ExpressionSyntax::Name(name) = discovered[0].call().callee() else {
+        panic!("Expected a direct named call");
+    };
+
+    let expected_span = name.identifier_token().span();
+
+    let unrelated_source = cudrix::source::SourceText::new("");
+
+    let result =
+        cudrix::lookup_direct_call_enclosing_function_parameters(discovered[0], &unrelated_source);
+
+    assert!(matches!(
+        result,
+        Err(cudrix::ParameterLookupError::InvalidIdentifierSpan(span))
+            if span == expected_span
+    ));
+}

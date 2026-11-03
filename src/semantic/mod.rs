@@ -3,7 +3,7 @@
 use crate::source::{SourceSpan, SourceText};
 use crate::syntax::{
     BlockSyntax, CallExpressionSyntax, CompilationUnitSyntax, ExpressionSyntax,
-    FunctionDeclarationSyntax, StatementSyntax,
+    FunctionDeclarationSyntax, FunctionParameterSyntax, StatementSyntax,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -16,6 +16,23 @@ pub enum TopLevelFunctionLookup<'syntax> {
     NotFound,
     Unique(&'syntax FunctionDeclarationSyntax),
     Multiple(Vec<&'syntax FunctionDeclarationSyntax>),
+}
+
+/// An error encountered while reading identifiers for parameter lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ParameterLookupError {
+    InvalidIdentifierSpan(SourceSpan),
+}
+
+/// Parameter declarations matching the name of a discovered direct call.
+///
+/// Results describe matching declarations, not definitive lexical bindings.
+/// Multiple matches are preserved in parameter declaration order.
+#[derive(Debug)]
+pub enum FunctionParameterLookup<'syntax> {
+    NotFound,
+    Unique(&'syntax FunctionParameterSyntax),
+    Multiple(Vec<&'syntax FunctionParameterSyntax>),
 }
 
 /// A direct named function call discovered within a function body.
@@ -321,11 +338,392 @@ pub fn lookup_direct_call_top_level_functions<'syntax>(
     lookup_top_level_function(compilation_unit, source, identifier_text).map(Some)
 }
 
+/// Finds parameters of the enclosing function matching a discovered call name.
+///
+/// The supplied `source` must be the same source text used to parse
+/// the syntax tree containing the discovered call.
+///
+/// Returns all matching parameters in declaration order without deciding
+/// whether duplicate parameter names are permitted.
+///
+/// An invalid call or parameter identifier span produces an error.
+/// Providing unrelated source text with otherwise valid spans cannot
+/// be detected reliably.
+///
+/// This operation does not resolve local variables, establish lexical
+/// bindings, or determine whether a matching parameter is callable.
+pub fn lookup_direct_call_enclosing_function_parameters<'syntax>(
+    discovered: DiscoveredDirectFunctionCall<'syntax>,
+    source: &SourceText,
+) -> Result<FunctionParameterLookup<'syntax>, ParameterLookupError> {
+    let ExpressionSyntax::Name(name_expression) = discovered.call().callee() else {
+        unreachable!("Discovered direct calls must have named callees");
+    };
+
+    let call_identifier_span = name_expression.identifier_token().span();
+
+    let call_identifier_text =
+        source
+            .slice(&call_identifier_span)
+            .ok_or(ParameterLookupError::InvalidIdentifierSpan(
+                call_identifier_span,
+            ))?;
+
+    let mut first_match = None;
+    let mut multiple_matches = Vec::new();
+
+    for parameter in discovered.function().parameters() {
+        let parameter_identifier_span = parameter.identifier_token().span();
+
+        let parameter_identifier_text = source.slice(&parameter_identifier_span).ok_or(
+            ParameterLookupError::InvalidIdentifierSpan(parameter_identifier_span),
+        )?;
+
+        if parameter_identifier_text != call_identifier_text {
+            continue;
+        }
+
+        match first_match {
+            None => first_match = Some(parameter),
+            Some(first) => {
+                if multiple_matches.is_empty() {
+                    multiple_matches.push(first);
+                }
+
+                multiple_matches.push(parameter);
+            }
+        }
+    }
+
+    if !multiple_matches.is_empty() {
+        return Ok(FunctionParameterLookup::Multiple(multiple_matches));
+    }
+
+    match first_match {
+        Some(parameter) => Ok(FunctionParameterLookup::Unique(parameter)),
+        None => Ok(FunctionParameterLookup::NotFound),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::compiler::Parser;
     use crate::syntax::StatementSyntax;
+
+    #[test]
+    fn parameter_lookup_returns_not_found_without_matching_parameter() {
+        for source_text in [
+            "function main() { greet(); }",
+            "function main(other) { greet(); }",
+        ] {
+            let source = SourceText::new(source_text);
+
+            let compilation_unit = Parser::new(&source)
+                .parse_compilation_unit()
+                .expect("Compilation unit should parse");
+
+            let discovered = discover_direct_function_calls(&compilation_unit);
+
+            assert_eq!(discovered.len(), 1);
+
+            let result = lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+            assert!(matches!(result, Ok(FunctionParameterLookup::NotFound)));
+        }
+    }
+
+    #[test]
+    fn parameter_lookup_returns_unique_matching_parameter() {
+        let source = SourceText::new("function main(first, second, third) { second(); }");
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let result = lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+        let Ok(FunctionParameterLookup::Unique(parameter)) = result else {
+            panic!("Expected exactly one matching parameter");
+        };
+
+        let expected_parameter = &compilation_unit.function_declarations()[0].parameters()[1];
+
+        assert!(std::ptr::eq(parameter, expected_parameter));
+    }
+
+    #[test]
+    fn parameter_lookup_preserves_multiple_matching_parameters() {
+        let source = SourceText::new("function main(value, other, value) { value(); }");
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let result = lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+        let Ok(FunctionParameterLookup::Multiple(matches)) = result else {
+            panic!("Expected multiple matching parameters");
+        };
+
+        assert_eq!(matches.len(), 2);
+
+        let parameters = compilation_unit.function_declarations()[0].parameters();
+
+        assert!(std::ptr::eq(matches[0], &parameters[0]));
+        assert!(std::ptr::eq(matches[1], &parameters[2]));
+    }
+
+    #[test]
+    fn parameter_lookup_preserves_independent_top_level_function_candidates() {
+        let source = SourceText::new(
+            "function greet() {}\n\
+             function main(greet) { greet(); }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let parameter_result =
+            lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+        let Ok(FunctionParameterLookup::Unique(parameter)) = parameter_result else {
+            panic!("Expected one matching parameter");
+        };
+
+        let functions = compilation_unit.function_declarations();
+
+        assert!(std::ptr::eq(parameter, &functions[1].parameters()[0]));
+
+        let function_result = lookup_direct_call_top_level_functions(
+            &compilation_unit,
+            &source,
+            discovered[0].call(),
+        );
+
+        let Ok(Some(TopLevelFunctionLookup::Unique(declaration))) = function_result else {
+            panic!("Expected one top-level function candidate");
+        };
+
+        assert!(std::ptr::eq(declaration, &functions[0]));
+    }
+
+    #[test]
+    fn parameter_lookup_only_examines_enclosing_function_parameters() {
+        let source = SourceText::new(
+            "function first(value) { value(); }\n\
+             function second(other) { value(); }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+        let functions = compilation_unit.function_declarations();
+
+        assert_eq!(discovered.len(), 2);
+
+        assert!(std::ptr::eq(discovered[0].function(), &functions[0]));
+        assert!(std::ptr::eq(discovered[1].function(), &functions[1]));
+
+        let first_result = lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+        let Ok(FunctionParameterLookup::Unique(parameter)) = first_result else {
+            panic!("Expected parameter from first function");
+        };
+
+        assert!(std::ptr::eq(parameter, &functions[0].parameters()[0]));
+
+        let second_result =
+            lookup_direct_call_enclosing_function_parameters(discovered[1], &source);
+
+        assert!(matches!(
+            second_result,
+            Ok(FunctionParameterLookup::NotFound)
+        ));
+    }
+
+    #[test]
+    fn parameter_lookup_recognizes_parameter_in_nested_control_flow() {
+        let source =
+            SourceText::new("function main(value) { if true { while true { value(); } } }");
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+        let functions = compilation_unit.function_declarations();
+
+        assert_eq!(discovered.len(), 1);
+
+        assert!(std::ptr::eq(discovered[0].function(), &functions[0]));
+
+        let result = lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+        let Ok(FunctionParameterLookup::Unique(parameter)) = result else {
+            panic!("Expected matching parameter inside nested control flow");
+        };
+
+        assert!(std::ptr::eq(parameter, &functions[0].parameters()[0]));
+    }
+
+    #[test]
+    fn parameter_lookup_is_deterministic_across_repeated_calls() {
+        let source = SourceText::new("function main(value, other, value) { value(); }");
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let first = lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+        let second = lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+        let (
+            Ok(FunctionParameterLookup::Multiple(first_matches)),
+            Ok(FunctionParameterLookup::Multiple(second_matches)),
+        ) = (first, second)
+        else {
+            panic!("Both lookups should return multiple matching parameters");
+        };
+
+        assert_eq!(first_matches.len(), 2);
+        assert_eq!(second_matches.len(), first_matches.len());
+
+        let parameters = compilation_unit.function_declarations()[0].parameters();
+
+        assert!(std::ptr::eq(first_matches[0], &parameters[0]));
+        assert!(std::ptr::eq(first_matches[1], &parameters[2]));
+
+        for (first_parameter, second_parameter) in first_matches.iter().zip(second_matches.iter()) {
+            assert!(std::ptr::eq(*first_parameter, *second_parameter));
+        }
+    }
+
+    #[test]
+    fn parameter_lookup_reports_invalid_call_identifier_span() {
+        let source = SourceText::new("function main(value) { value(); }");
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let ExpressionSyntax::Name(name) = discovered[0].call().callee() else {
+            panic!("Expected a direct named call");
+        };
+
+        let expected_span = name.identifier_token().span();
+
+        let unrelated_source = SourceText::new("");
+
+        let result =
+            lookup_direct_call_enclosing_function_parameters(discovered[0], &unrelated_source);
+
+        assert!(matches!(
+            result,
+            Err(ParameterLookupError::InvalidIdentifierSpan(span))
+                if span == expected_span
+        ));
+    }
+
+    #[test]
+    fn parameter_lookup_reports_invalid_parameter_identifier_span() {
+        let source = SourceText::new("function main(value) { value(); }");
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let ExpressionSyntax::Name(name) = discovered[0].call().callee() else {
+            panic!("Expected a direct named call");
+        };
+
+        let call_span = name.identifier_token().span();
+
+        let parameter_span = compilation_unit.function_declarations()[0].parameters()[0]
+            .identifier_token()
+            .span();
+
+        // Deliberately mismatched source text:
+        // the call span remains valid, but the parameter span
+        // begins inside the multibyte UTF-8 character 'é'.
+        let unrelated_source = SourceText::new("function mainévalue) {value(); }");
+
+        assert_eq!(unrelated_source.slice(&call_span), Some("value"));
+        assert_eq!(unrelated_source.slice(&parameter_span), None);
+
+        let result =
+            lookup_direct_call_enclosing_function_parameters(discovered[0], &unrelated_source);
+
+        assert!(matches!(
+            result,
+            Err(ParameterLookupError::InvalidIdentifierSpan(span))
+                if span == parameter_span
+        ));
+    }
+
+    #[test]
+    fn parameter_lookup_does_not_resolve_local_variable_declarations() {
+        let source = SourceText::new(
+            "function with_parameter(value) { let value = 1; value(); }\n\
+             function without_parameter(other) { let value = 1; value(); }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+        let functions = compilation_unit.function_declarations();
+
+        assert_eq!(discovered.len(), 2);
+
+        assert!(std::ptr::eq(discovered[0].function(), &functions[0]));
+        assert!(std::ptr::eq(discovered[1].function(), &functions[1]));
+
+        let first_result = lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+        let Ok(FunctionParameterLookup::Unique(parameter)) = first_result else {
+            panic!("Expected matching parameter despite local declaration");
+        };
+
+        assert!(std::ptr::eq(parameter, &functions[0].parameters()[0]));
+
+        let second_result =
+            lookup_direct_call_enclosing_function_parameters(discovered[1], &source);
+
+        assert!(matches!(
+            second_result,
+            Ok(FunctionParameterLookup::NotFound)
+        ));
+    }
 
     #[test]
     fn discovery_returns_no_calls_for_empty_or_call_free_functions() {
