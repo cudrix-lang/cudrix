@@ -2042,6 +2042,102 @@ fn public_api_reports_invalid_parameter_lookup_identifier_span() {
 }
 
 #[test]
+fn public_api_exposes_lexical_blocks_without_changing_declaration_recognition() {
+    let source = cudrix::source::SourceText::new(
+        "function main(value) {
+            value();
+
+            let value = 10;
+
+            if true {
+                value();
+            } else {
+                value();
+            }
+        }",
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    assert_eq!(discovered.len(), 3);
+
+    let function = &compilation_unit.function_declarations()[0];
+    let function_body = function.body();
+
+    let statements = function_body.statements();
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(local_declaration) = &statements[1]
+    else {
+        panic!("Expected local variable declaration");
+    };
+
+    let cudrix::syntax::StatementSyntax::Conditional(conditional) = &statements[2] else {
+        panic!("Expected conditional statement");
+    };
+
+    let if_block = conditional.then_block();
+
+    let else_block = conditional
+        .else_clause()
+        .expect("Expected else clause")
+        .block();
+
+    // The first call belongs directly to the function body.
+    let outer_blocks = cudrix::lookup_direct_call_enclosing_blocks(discovered[0]);
+
+    assert_eq!(outer_blocks.len(), 1);
+    assert!(std::ptr::eq(outer_blocks[0], function_body));
+
+    // The second call belongs to the if block.
+    let if_blocks = cudrix::lookup_direct_call_enclosing_blocks(discovered[1]);
+
+    assert_eq!(if_blocks.len(), 2);
+    assert!(std::ptr::eq(if_blocks[0], function_body));
+    assert!(std::ptr::eq(if_blocks[1], if_block));
+
+    // The third call belongs to the sibling else block.
+    let else_blocks = cudrix::lookup_direct_call_enclosing_blocks(discovered[2]);
+
+    assert_eq!(else_blocks.len(), 2);
+    assert!(std::ptr::eq(else_blocks[0], function_body));
+    assert!(std::ptr::eq(else_blocks[1], else_block));
+
+    assert!(!std::ptr::eq(if_block, else_block));
+
+    // Existing parameter recognition remains independent
+    // of the new structural block lookup.
+    for discovered_call in &discovered {
+        let parameter_result =
+            cudrix::lookup_direct_call_enclosing_function_parameters(*discovered_call, &source);
+
+        let Ok(cudrix::FunctionParameterLookup::Unique(parameter)) = parameter_result else {
+            panic!("Expected matching function parameter");
+        };
+
+        assert!(std::ptr::eq(parameter, &function.parameters()[0]));
+    }
+
+    // Existing function-wide local declaration recognition must
+    // continue finding the declaration, even for the earlier call.
+    for discovered_call in &discovered {
+        let local_result = cudrix::lookup_direct_call_enclosing_function_local_variables(
+            *discovered_call,
+            &source,
+        );
+
+        let Ok(cudrix::LocalVariableLookup::Unique(declaration)) = local_result else {
+            panic!("Expected matching function-wide local declaration");
+        };
+
+        assert!(std::ptr::eq(declaration, local_declaration));
+    }
+}
+
+#[test]
 fn public_api_recognizes_local_variables_without_resolving_bindings() {
     let source = cudrix::source::SourceText::new(
         "function target() {}

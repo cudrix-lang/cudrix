@@ -94,7 +94,15 @@ pub fn discover_direct_function_calls<'syntax>(
     let mut discovered_calls = Vec::new();
 
     for function in compilation_unit.function_declarations() {
-        collect_direct_calls_in_block(function.body(), function, &mut discovered_calls);
+        let mut enclosing_blocks = Vec::new();
+
+        visit_direct_calls_in_block(
+            function.body(),
+            &mut enclosing_blocks,
+            &mut |call, _blocks| {
+                discovered_calls.push(DiscoveredDirectFunctionCall { function, call });
+            },
+        );
     }
 
     discovered_calls.sort_by_key(|discovered| {
@@ -108,165 +116,229 @@ pub fn discover_direct_function_calls<'syntax>(
     discovered_calls
 }
 
-fn collect_direct_calls_in_block<'syntax>(
+/// Returns the enclosing block chain of a discovered direct function call.
+///
+/// Blocks are ordered from the enclosing function body to the innermost
+/// block containing the call. The function body is always included.
+///
+/// The returned references point into the original syntax tree.
+/// No syntax nodes are cloned or modified.
+///
+/// This operation recognizes structural block containment only.
+/// It does not determine declaration visibility, shadowing, name binding,
+/// or whether the call target is callable.
+pub fn lookup_direct_call_enclosing_blocks<'syntax>(
+    discovered: DiscoveredDirectFunctionCall<'syntax>,
+) -> Vec<&'syntax BlockSyntax> {
+    let mut enclosing_blocks = Vec::new();
+    let mut matching_blocks = None;
+
+    visit_direct_calls_in_block(
+        discovered.function().body(),
+        &mut enclosing_blocks,
+        &mut |call, blocks| {
+            if std::ptr::eq(call, discovered.call()) {
+                matching_blocks = Some(blocks.to_vec());
+            }
+        },
+    );
+
+    matching_blocks.expect("A discovered direct call must belong to its enclosing function")
+}
+
+/// Visits direct named calls within a block and its nested blocks.
+///
+/// The enclosing block path is maintained from outermost to innermost.
+/// Each visited call is reported with its current enclosing block path.
+fn visit_direct_calls_in_block<'syntax>(
     block: &'syntax BlockSyntax,
-    function: &'syntax FunctionDeclarationSyntax,
-    discovered_calls: &mut Vec<DiscoveredDirectFunctionCall<'syntax>>,
+    enclosing_blocks: &mut Vec<&'syntax BlockSyntax>,
+    on_direct_call: &mut impl FnMut(&'syntax CallExpressionSyntax, &[&'syntax BlockSyntax]),
 ) {
+    enclosing_blocks.push(block);
+
     for statement in block.statements() {
         match statement {
             StatementSyntax::Expression(statement) => {
-                collect_direct_calls_in_expression(
+                visit_direct_calls_in_expression(
                     statement.expression(),
-                    function,
-                    discovered_calls,
+                    enclosing_blocks,
+                    on_direct_call,
                 );
             }
 
             StatementSyntax::VariableDeclaration(statement) => {
-                collect_direct_calls_in_expression(
+                visit_direct_calls_in_expression(
                     statement.initializer(),
-                    function,
-                    discovered_calls,
+                    enclosing_blocks,
+                    on_direct_call,
                 );
             }
 
             StatementSyntax::Return(statement) => {
-                collect_direct_calls_in_expression(
+                visit_direct_calls_in_expression(
                     statement.expression(),
-                    function,
-                    discovered_calls,
+                    enclosing_blocks,
+                    on_direct_call,
                 );
             }
 
             StatementSyntax::Conditional(statement) => {
-                collect_direct_calls_in_expression(
+                visit_direct_calls_in_expression(
                     statement.condition(),
-                    function,
-                    discovered_calls,
+                    enclosing_blocks,
+                    on_direct_call,
                 );
 
-                collect_direct_calls_in_block(statement.then_block(), function, discovered_calls);
+                visit_direct_calls_in_block(
+                    statement.then_block(),
+                    enclosing_blocks,
+                    on_direct_call,
+                );
 
                 for clause in statement.elseif_clauses() {
-                    collect_direct_calls_in_expression(
+                    visit_direct_calls_in_expression(
                         clause.condition(),
-                        function,
-                        discovered_calls,
+                        enclosing_blocks,
+                        on_direct_call,
                     );
 
-                    collect_direct_calls_in_block(clause.block(), function, discovered_calls);
+                    visit_direct_calls_in_block(clause.block(), enclosing_blocks, on_direct_call);
                 }
 
                 if let Some(clause) = statement.else_clause() {
-                    collect_direct_calls_in_block(clause.block(), function, discovered_calls);
+                    visit_direct_calls_in_block(clause.block(), enclosing_blocks, on_direct_call);
                 }
             }
 
             StatementSyntax::While(statement) => {
-                collect_direct_calls_in_expression(
+                visit_direct_calls_in_expression(
                     statement.condition(),
-                    function,
-                    discovered_calls,
+                    enclosing_blocks,
+                    on_direct_call,
                 );
 
-                collect_direct_calls_in_block(statement.block(), function, discovered_calls);
+                visit_direct_calls_in_block(statement.block(), enclosing_blocks, on_direct_call);
             }
 
             StatementSyntax::For(statement) => {
-                collect_direct_calls_in_expression(
+                visit_direct_calls_in_expression(
                     statement.initializer(),
-                    function,
-                    discovered_calls,
+                    enclosing_blocks,
+                    on_direct_call,
                 );
 
-                collect_direct_calls_in_expression(
+                visit_direct_calls_in_expression(
                     statement.condition(),
-                    function,
-                    discovered_calls,
+                    enclosing_blocks,
+                    on_direct_call,
                 );
 
-                collect_direct_calls_in_expression(statement.update(), function, discovered_calls);
+                visit_direct_calls_in_expression(
+                    statement.update(),
+                    enclosing_blocks,
+                    on_direct_call,
+                );
 
-                collect_direct_calls_in_block(statement.block(), function, discovered_calls);
+                visit_direct_calls_in_block(statement.block(), enclosing_blocks, on_direct_call);
             }
         }
     }
+
+    enclosing_blocks
+        .pop()
+        .expect("The current block must exist on the enclosing block path");
 }
 
-fn collect_direct_calls_in_expression<'syntax>(
+/// Visits direct named calls within an expression and its nested expressions.
+///
+/// Expression traversal preserves the surrounding block path.
+/// Nested expressions do not introduce new block contexts.
+fn visit_direct_calls_in_expression<'syntax>(
     expression: &'syntax ExpressionSyntax,
-    function: &'syntax FunctionDeclarationSyntax,
-    discovered_calls: &mut Vec<DiscoveredDirectFunctionCall<'syntax>>,
+    enclosing_blocks: &mut Vec<&'syntax BlockSyntax>,
+    on_direct_call: &mut impl FnMut(&'syntax CallExpressionSyntax, &[&'syntax BlockSyntax]),
 ) {
     match expression {
         ExpressionSyntax::Literal(_) | ExpressionSyntax::Name(_) => {}
 
         ExpressionSyntax::Unary(unary) => {
-            collect_direct_calls_in_expression(unary.operand(), function, discovered_calls);
+            visit_direct_calls_in_expression(unary.operand(), enclosing_blocks, on_direct_call);
         }
 
         ExpressionSyntax::Binary(binary) => {
-            collect_direct_calls_in_expression(binary.left(), function, discovered_calls);
+            visit_direct_calls_in_expression(binary.left(), enclosing_blocks, on_direct_call);
 
-            collect_direct_calls_in_expression(binary.right(), function, discovered_calls);
+            visit_direct_calls_in_expression(binary.right(), enclosing_blocks, on_direct_call);
         }
 
         ExpressionSyntax::Conditional(conditional) => {
-            collect_direct_calls_in_expression(conditional.condition(), function, discovered_calls);
+            visit_direct_calls_in_expression(
+                conditional.condition(),
+                enclosing_blocks,
+                on_direct_call,
+            );
 
-            collect_direct_calls_in_expression(conditional.when_true(), function, discovered_calls);
+            visit_direct_calls_in_expression(
+                conditional.when_true(),
+                enclosing_blocks,
+                on_direct_call,
+            );
 
-            collect_direct_calls_in_expression(
+            visit_direct_calls_in_expression(
                 conditional.when_false(),
-                function,
-                discovered_calls,
+                enclosing_blocks,
+                on_direct_call,
             );
         }
 
         ExpressionSyntax::Assignment(assignment) => {
-            collect_direct_calls_in_expression(assignment.expression(), function, discovered_calls);
+            visit_direct_calls_in_expression(
+                assignment.expression(),
+                enclosing_blocks,
+                on_direct_call,
+            );
         }
 
         ExpressionSyntax::MemberAccess(member) => {
-            collect_direct_calls_in_expression(member.expression(), function, discovered_calls);
+            visit_direct_calls_in_expression(member.expression(), enclosing_blocks, on_direct_call);
         }
 
         ExpressionSyntax::Index(index) => {
-            collect_direct_calls_in_expression(index.expression(), function, discovered_calls);
+            visit_direct_calls_in_expression(index.expression(), enclosing_blocks, on_direct_call);
 
-            collect_direct_calls_in_expression(index.index(), function, discovered_calls);
+            visit_direct_calls_in_expression(index.index(), enclosing_blocks, on_direct_call);
         }
 
         ExpressionSyntax::ArrayLiteral(array) => {
             for element in array.elements() {
-                collect_direct_calls_in_expression(element, function, discovered_calls);
+                visit_direct_calls_in_expression(element, enclosing_blocks, on_direct_call);
             }
         }
 
         ExpressionSyntax::ObjectLiteral(object) => {
             for member in object.members() {
-                collect_direct_calls_in_expression(member.value(), function, discovered_calls);
+                visit_direct_calls_in_expression(member.value(), enclosing_blocks, on_direct_call);
             }
         }
 
         ExpressionSyntax::Call(call) => {
             if matches!(call.callee(), ExpressionSyntax::Name(_)) {
-                discovered_calls.push(DiscoveredDirectFunctionCall { function, call });
+                on_direct_call(call, enclosing_blocks);
             }
 
-            collect_direct_calls_in_expression(call.callee(), function, discovered_calls);
+            visit_direct_calls_in_expression(call.callee(), enclosing_blocks, on_direct_call);
 
             for argument in call.arguments() {
-                collect_direct_calls_in_expression(argument, function, discovered_calls);
+                visit_direct_calls_in_expression(argument, enclosing_blocks, on_direct_call);
             }
         }
 
         ExpressionSyntax::Parenthesized(parenthesized) => {
-            collect_direct_calls_in_expression(
+            visit_direct_calls_in_expression(
                 parenthesized.expression(),
-                function,
-                discovered_calls,
+                enclosing_blocks,
+                on_direct_call,
             );
         }
     }
@@ -549,6 +621,326 @@ mod tests {
     use super::*;
     use crate::compiler::Parser;
     use crate::syntax::StatementSyntax;
+
+    #[test]
+    fn direct_call_enclosing_blocks_include_function_and_nested_blocks() {
+        let source = crate::source::SourceText::new(
+            "function main() {
+                outer();
+
+                if true {
+                    inner();
+                }
+            }",
+        );
+
+        let compilation_unit = crate::compiler::Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 2);
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+
+        let StatementSyntax::Conditional(conditional) = &function_body.statements()[1] else {
+            panic!("Expected conditional statement");
+        };
+
+        let outer_blocks = lookup_direct_call_enclosing_blocks(discovered[0]);
+
+        assert_eq!(outer_blocks.len(), 1);
+        assert!(std::ptr::eq(outer_blocks[0], function_body));
+
+        let inner_blocks = lookup_direct_call_enclosing_blocks(discovered[1]);
+
+        assert_eq!(inner_blocks.len(), 2);
+        assert!(std::ptr::eq(inner_blocks[0], function_body));
+        assert!(std::ptr::eq(inner_blocks[1], conditional.then_block()));
+    }
+
+    #[test]
+    fn direct_call_enclosing_blocks_distinguish_conditional_branches() {
+        let source = crate::source::SourceText::new(
+            "function main() {
+            if first_condition() {
+                first_branch();
+            } elseif second_condition() {
+                second_branch();
+            } else {
+                fallback();
+            }
+        }",
+        );
+
+        let compilation_unit = crate::compiler::Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 5);
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+
+        let StatementSyntax::Conditional(conditional) = &function_body.statements()[0] else {
+            panic!("Expected conditional statement");
+        };
+
+        let if_block = conditional.then_block();
+
+        let elseif_block = conditional.elseif_clauses()[0].block();
+
+        let else_block = conditional
+            .else_clause()
+            .expect("Expected else clause")
+            .block();
+
+        // Conditional expressions belong to the enclosing function body.
+        for index in [0, 2] {
+            let blocks = lookup_direct_call_enclosing_blocks(discovered[index]);
+
+            assert_eq!(blocks.len(), 1);
+            assert!(std::ptr::eq(blocks[0], function_body));
+        }
+
+        // Each conditional branch has its own enclosing block.
+        for (index, expected_block) in [(1, if_block), (3, elseif_block), (4, else_block)] {
+            let blocks = lookup_direct_call_enclosing_blocks(discovered[index]);
+
+            assert_eq!(blocks.len(), 2);
+            assert!(std::ptr::eq(blocks[0], function_body));
+            assert!(std::ptr::eq(blocks[1], expected_block));
+        }
+
+        // Sibling branches must not share the same block identity.
+        assert!(!std::ptr::eq(if_block, elseif_block));
+        assert!(!std::ptr::eq(if_block, else_block));
+        assert!(!std::ptr::eq(elseif_block, else_block));
+    }
+
+    #[test]
+    fn direct_call_enclosing_blocks_distinguish_loop_headers_and_bodies() {
+        let source = crate::source::SourceText::new(
+            "function main() {
+            while while_condition() {
+                while_body();
+            }
+
+            for initialize(); loop_condition(); advance() {
+                for_body();
+            }
+        }",
+        );
+
+        let compilation_unit = crate::compiler::Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 6);
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+
+        let StatementSyntax::While(while_statement) = &function_body.statements()[0] else {
+            panic!("Expected while statement");
+        };
+
+        let StatementSyntax::For(for_statement) = &function_body.statements()[1] else {
+            panic!("Expected for statement");
+        };
+
+        let while_body = while_statement.block();
+        let for_body = for_statement.block();
+
+        // Loop conditions and for-header expressions belong to
+        // the surrounding function-body block.
+        for index in [0, 2, 3, 4] {
+            let blocks = lookup_direct_call_enclosing_blocks(discovered[index]);
+
+            assert_eq!(blocks.len(), 1);
+            assert!(std::ptr::eq(blocks[0], function_body));
+        }
+
+        // The while-body call has two enclosing blocks.
+        let while_blocks = lookup_direct_call_enclosing_blocks(discovered[1]);
+
+        assert_eq!(while_blocks.len(), 2);
+        assert!(std::ptr::eq(while_blocks[0], function_body));
+        assert!(std::ptr::eq(while_blocks[1], while_body));
+
+        // The for-body call also has two enclosing blocks.
+        let for_blocks = lookup_direct_call_enclosing_blocks(discovered[5]);
+
+        assert_eq!(for_blocks.len(), 2);
+        assert!(std::ptr::eq(for_blocks[0], function_body));
+        assert!(std::ptr::eq(for_blocks[1], for_body));
+
+        // Separate loops must retain distinct body identities.
+        assert!(!std::ptr::eq(while_body, for_body));
+    }
+
+    #[test]
+    fn direct_call_enclosing_blocks_track_nested_expressions_and_deep_blocks() {
+        let source = crate::source::SourceText::new(
+            "function main() {
+            let result = calculate(seed());
+
+            if check(result) {
+                while running() {
+                    process(result);
+                    report();
+                }
+            }
+        }",
+        );
+
+        let compilation_unit = crate::compiler::Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 6);
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+
+        let StatementSyntax::Conditional(conditional) = &function_body.statements()[1] else {
+            panic!("Expected conditional statement");
+        };
+
+        let if_block = conditional.then_block();
+
+        let StatementSyntax::While(while_statement) = &if_block.statements()[0] else {
+            panic!("Expected nested while statement");
+        };
+
+        let while_block = while_statement.block();
+
+        // Calls inside the variable initializer and the if condition
+        // belong directly to the function body.
+        for index in [0, 1, 2] {
+            let blocks = lookup_direct_call_enclosing_blocks(discovered[index]);
+
+            assert_eq!(blocks.len(), 1);
+            assert!(std::ptr::eq(blocks[0], function_body));
+        }
+
+        // The while condition is evaluated in the enclosing if block.
+        let condition_blocks = lookup_direct_call_enclosing_blocks(discovered[3]);
+
+        assert_eq!(condition_blocks.len(), 2);
+        assert!(std::ptr::eq(condition_blocks[0], function_body));
+        assert!(std::ptr::eq(condition_blocks[1], if_block));
+
+        // Both calls in the while body share the same three-block chain.
+        for index in [4, 5] {
+            let blocks = lookup_direct_call_enclosing_blocks(discovered[index]);
+
+            assert_eq!(blocks.len(), 3);
+            assert!(std::ptr::eq(blocks[0], function_body));
+            assert!(std::ptr::eq(blocks[1], if_block));
+            assert!(std::ptr::eq(blocks[2], while_block));
+        }
+
+        // Repeated lookups must return the same syntax-node identities
+        // in the same order.
+        let first = lookup_direct_call_enclosing_blocks(discovered[4]);
+        let second = lookup_direct_call_enclosing_blocks(discovered[4]);
+
+        assert_eq!(first.len(), second.len());
+
+        for (first_block, second_block) in first.iter().zip(second.iter()) {
+            assert!(std::ptr::eq(*first_block, *second_block));
+        }
+    }
+
+    #[test]
+    fn direct_call_enclosing_blocks_remain_isolated_between_functions() {
+        let source = crate::source::SourceText::new(
+            "function first() {
+            shared();
+
+            if true {
+                nested();
+            }
+        }
+
+        function second() {
+            shared();
+
+            if true {
+                nested();
+            }
+        }",
+        );
+
+        let compilation_unit = crate::compiler::Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+        let functions = compilation_unit.function_declarations();
+
+        assert_eq!(functions.len(), 2);
+        assert_eq!(discovered.len(), 4);
+
+        let first_function = &functions[0];
+        let second_function = &functions[1];
+
+        let first_body = first_function.body();
+        let second_body = second_function.body();
+
+        let StatementSyntax::Conditional(first_conditional) = &first_body.statements()[1] else {
+            panic!("Expected conditional statement in first function");
+        };
+
+        let StatementSyntax::Conditional(second_conditional) = &second_body.statements()[1] else {
+            panic!("Expected conditional statement in second function");
+        };
+
+        let first_if_block = first_conditional.then_block();
+        let second_if_block = second_conditional.then_block();
+
+        // Each discovered call must retain its original function identity.
+        for discovered_call in &discovered[..2] {
+            assert!(std::ptr::eq(discovered_call.function(), first_function));
+        }
+
+        for discovered_call in &discovered[2..] {
+            assert!(std::ptr::eq(discovered_call.function(), second_function));
+        }
+
+        // The first function's calls must reference only its own blocks.
+        let first_outer = lookup_direct_call_enclosing_blocks(discovered[0]);
+
+        assert_eq!(first_outer.len(), 1);
+        assert!(std::ptr::eq(first_outer[0], first_body));
+
+        let first_inner = lookup_direct_call_enclosing_blocks(discovered[1]);
+
+        assert_eq!(first_inner.len(), 2);
+        assert!(std::ptr::eq(first_inner[0], first_body));
+        assert!(std::ptr::eq(first_inner[1], first_if_block));
+
+        // The second function's calls must reference only its own blocks.
+        let second_outer = lookup_direct_call_enclosing_blocks(discovered[2]);
+
+        assert_eq!(second_outer.len(), 1);
+        assert!(std::ptr::eq(second_outer[0], second_body));
+
+        let second_inner = lookup_direct_call_enclosing_blocks(discovered[3]);
+
+        assert_eq!(second_inner.len(), 2);
+        assert!(std::ptr::eq(second_inner[0], second_body));
+        assert!(std::ptr::eq(second_inner[1], second_if_block));
+
+        // Identical source structure must not imply shared syntax identity.
+        assert!(!std::ptr::eq(first_body, second_body));
+        assert!(!std::ptr::eq(first_if_block, second_if_block));
+    }
 
     #[test]
     fn local_variable_lookup_returns_not_found_without_matching_declaration() {

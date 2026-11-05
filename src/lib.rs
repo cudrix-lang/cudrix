@@ -7,7 +7,8 @@ pub mod syntax;
 pub use semantic::{
     DiscoveredDirectFunctionCall, FunctionLookupError, FunctionParameterLookup,
     LocalVariableLookup, LocalVariableLookupError, ParameterLookupError, TopLevelFunctionLookup,
-    discover_direct_function_calls, lookup_direct_call_enclosing_function_local_variables,
+    discover_direct_function_calls, lookup_direct_call_enclosing_blocks,
+    lookup_direct_call_enclosing_function_local_variables,
     lookup_direct_call_enclosing_function_parameters, lookup_direct_call_top_level_functions,
     lookup_top_level_function,
 };
