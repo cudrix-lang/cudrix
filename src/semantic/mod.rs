@@ -4,6 +4,7 @@ use crate::source::{SourceSpan, SourceText};
 use crate::syntax::{
     BlockSyntax, CallExpressionSyntax, CompilationUnitSyntax, ExpressionSyntax,
     FunctionDeclarationSyntax, FunctionParameterSyntax, StatementSyntax,
+    VariableDeclarationStatementSyntax,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,6 +34,26 @@ pub enum FunctionParameterLookup<'syntax> {
     NotFound,
     Unique(&'syntax FunctionParameterSyntax),
     Multiple(Vec<&'syntax FunctionParameterSyntax>),
+}
+
+/// An error encountered while reading identifiers for local variable lookup.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalVariableLookupError {
+    InvalidIdentifierSpan(SourceSpan),
+}
+
+/// Local variable declarations matching the name of a discovered direct call.
+///
+/// Results describe matching declarations throughout the enclosing function,
+/// not definitive lexical bindings or declarations visible at the call site.
+///
+/// Both `let` and `var` declarations are recognized. Multiple matches are
+/// preserved in source order, including declarations in nested blocks.
+#[derive(Debug)]
+pub enum LocalVariableLookup<'syntax> {
+    NotFound,
+    Unique(&'syntax VariableDeclarationStatementSyntax),
+    Multiple(Vec<&'syntax VariableDeclarationStatementSyntax>),
 }
 
 /// A direct named function call discovered within a function body.
@@ -405,11 +426,602 @@ pub fn lookup_direct_call_enclosing_function_parameters<'syntax>(
     }
 }
 
+/// Finds local variable declarations in the enclosing function that match
+/// the name of a discovered direct call.
+///
+/// The supplied `source` must be the same source text used to parse the
+/// syntax tree containing the discovered call.
+///
+/// Both `let` and `var` declarations are recognized throughout the enclosing
+/// function, including nested blocks and declarations appearing after the call.
+///
+/// Returns all matching declarations in source order without determining
+/// lexical visibility, shadowing, binding, or callability.
+///
+/// An invalid call or local declaration identifier span produces an error.
+/// Providing unrelated source text with otherwise valid spans cannot
+/// be detected reliably.
+pub fn lookup_direct_call_enclosing_function_local_variables<'syntax>(
+    discovered: DiscoveredDirectFunctionCall<'syntax>,
+    source: &SourceText,
+) -> Result<LocalVariableLookup<'syntax>, LocalVariableLookupError> {
+    let ExpressionSyntax::Name(name_expression) = discovered.call().callee() else {
+        unreachable!("Discovered direct calls must have named callees");
+    };
+
+    let call_identifier_span = name_expression.identifier_token().span();
+
+    let call_identifier_text = source.slice(&call_identifier_span).ok_or(
+        LocalVariableLookupError::InvalidIdentifierSpan(call_identifier_span),
+    )?;
+
+    let mut matching_declarations = Vec::new();
+
+    collect_matching_local_variables_in_block(
+        discovered.function().body(),
+        source,
+        call_identifier_text,
+        &mut matching_declarations,
+    )?;
+
+    match matching_declarations.len() {
+        0 => Ok(LocalVariableLookup::NotFound),
+        1 => Ok(LocalVariableLookup::Unique(matching_declarations[0])),
+        _ => Ok(LocalVariableLookup::Multiple(matching_declarations)),
+    }
+}
+
+/// Collects matching local declarations from a block and its nested blocks.
+fn collect_matching_local_variables_in_block<'syntax>(
+    block: &'syntax BlockSyntax,
+    source: &SourceText,
+    name: &str,
+    matching_declarations: &mut Vec<&'syntax VariableDeclarationStatementSyntax>,
+) -> Result<(), LocalVariableLookupError> {
+    for statement in block.statements() {
+        match statement {
+            StatementSyntax::VariableDeclaration(declaration) => {
+                let identifier_span = declaration.identifier_token().span();
+
+                let identifier_text = source.slice(&identifier_span).ok_or(
+                    LocalVariableLookupError::InvalidIdentifierSpan(identifier_span),
+                )?;
+
+                if identifier_text == name {
+                    matching_declarations.push(declaration);
+                }
+            }
+
+            StatementSyntax::Conditional(conditional) => {
+                collect_matching_local_variables_in_block(
+                    conditional.then_block(),
+                    source,
+                    name,
+                    matching_declarations,
+                )?;
+
+                for clause in conditional.elseif_clauses() {
+                    collect_matching_local_variables_in_block(
+                        clause.block(),
+                        source,
+                        name,
+                        matching_declarations,
+                    )?;
+                }
+
+                if let Some(clause) = conditional.else_clause() {
+                    collect_matching_local_variables_in_block(
+                        clause.block(),
+                        source,
+                        name,
+                        matching_declarations,
+                    )?;
+                }
+            }
+
+            StatementSyntax::While(while_statement) => {
+                collect_matching_local_variables_in_block(
+                    while_statement.block(),
+                    source,
+                    name,
+                    matching_declarations,
+                )?;
+            }
+
+            StatementSyntax::For(for_statement) => {
+                collect_matching_local_variables_in_block(
+                    for_statement.block(),
+                    source,
+                    name,
+                    matching_declarations,
+                )?;
+            }
+
+            StatementSyntax::Expression(_) | StatementSyntax::Return(_) => {}
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::compiler::Parser;
     use crate::syntax::StatementSyntax;
+
+    #[test]
+    fn local_variable_lookup_returns_not_found_without_matching_declaration() {
+        for source_text in [
+            "function main() { target(); }",
+            "function main() { let other = 1; target(); }",
+        ] {
+            let source = SourceText::new(source_text);
+
+            let compilation_unit = Parser::new(&source)
+                .parse_compilation_unit()
+                .expect("Compilation unit should parse");
+
+            let discovered = discover_direct_function_calls(&compilation_unit);
+
+            assert_eq!(discovered.len(), 1);
+
+            let result =
+                lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+            assert!(matches!(result, Ok(LocalVariableLookup::NotFound)));
+        }
+    }
+
+    #[test]
+    fn local_variable_lookup_returns_unique_matching_let_and_var_declarations() {
+        for keyword in ["let", "var"] {
+            let source = SourceText::new(format!(
+                "function main() {{ {keyword} target = 1; target(); }}"
+            ));
+
+            let compilation_unit = Parser::new(&source)
+                .parse_compilation_unit()
+                .expect("Compilation unit should parse");
+
+            let discovered = discover_direct_function_calls(&compilation_unit);
+
+            assert_eq!(discovered.len(), 1);
+
+            let result =
+                lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+            let Ok(LocalVariableLookup::Unique(declaration)) = result else {
+                panic!("Expected exactly one matching local declaration");
+            };
+
+            let statements = compilation_unit.function_declarations()[0]
+                .body()
+                .statements();
+
+            let StatementSyntax::VariableDeclaration(expected_declaration) = &statements[0] else {
+                panic!("Expected a variable declaration");
+            };
+
+            assert!(std::ptr::eq(declaration, expected_declaration));
+        }
+    }
+
+    #[test]
+    fn local_variable_lookup_preserves_multiple_declarations_in_source_order() {
+        let source = SourceText::new(
+            "function main() {
+                target();
+                let target = 1;
+                if true {
+                    var target = 2;
+                }
+                var target = 3;
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let result = lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+        let Ok(LocalVariableLookup::Multiple(matches)) = result else {
+            panic!("Expected multiple matching local declarations");
+        };
+
+        assert_eq!(matches.len(), 3);
+
+        let statements = compilation_unit.function_declarations()[0]
+            .body()
+            .statements();
+
+        let StatementSyntax::VariableDeclaration(first_declaration) = &statements[1] else {
+            panic!("Expected first local declaration");
+        };
+
+        let StatementSyntax::Conditional(conditional) = &statements[2] else {
+            panic!("Expected conditional statement");
+        };
+
+        let StatementSyntax::VariableDeclaration(nested_declaration) =
+            &conditional.then_block().statements()[0]
+        else {
+            panic!("Expected nested local declaration");
+        };
+
+        let StatementSyntax::VariableDeclaration(last_declaration) = &statements[3] else {
+            panic!("Expected final local declaration");
+        };
+
+        assert!(std::ptr::eq(matches[0], first_declaration));
+        assert!(std::ptr::eq(matches[1], nested_declaration));
+        assert!(std::ptr::eq(matches[2], last_declaration));
+    }
+
+    #[test]
+    fn local_variable_lookup_recognizes_declarations_across_conditional_branches() {
+        let source = SourceText::new(
+            "function main() {
+                target();
+
+                if false {
+                    let target = 1;
+                } elseif true {
+                    var target = 2;
+                } else {
+                    let target = 3;
+                }
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let result = lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+        let Ok(LocalVariableLookup::Multiple(matches)) = result else {
+            panic!("Expected matching declarations from all conditional branches");
+        };
+
+        assert_eq!(matches.len(), 3);
+
+        let statements = compilation_unit.function_declarations()[0]
+            .body()
+            .statements();
+
+        let StatementSyntax::Conditional(conditional) = &statements[1] else {
+            panic!("Expected conditional statement");
+        };
+
+        let StatementSyntax::VariableDeclaration(then_declaration) =
+            &conditional.then_block().statements()[0]
+        else {
+            panic!("Expected declaration in if branch");
+        };
+
+        let StatementSyntax::VariableDeclaration(elseif_declaration) =
+            &conditional.elseif_clauses()[0].block().statements()[0]
+        else {
+            panic!("Expected declaration in elseif branch");
+        };
+
+        let else_clause = conditional.else_clause().expect("Expected else clause");
+
+        let StatementSyntax::VariableDeclaration(else_declaration) =
+            &else_clause.block().statements()[0]
+        else {
+            panic!("Expected declaration in else branch");
+        };
+
+        assert!(std::ptr::eq(matches[0], then_declaration));
+        assert!(std::ptr::eq(matches[1], elseif_declaration));
+        assert!(std::ptr::eq(matches[2], else_declaration));
+    }
+
+    #[test]
+    fn local_variable_lookup_recognizes_declarations_in_nested_loops() {
+        let source = SourceText::new(
+            "function main() {
+                target();
+
+                while true {
+                    let target = 1;
+
+                    for index = 0; index < 3; index = index + 1 {
+                        var target = 2;
+                    }
+                }
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let result = lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+        let Ok(LocalVariableLookup::Multiple(matches)) = result else {
+            panic!("Expected matching declarations in nested loops");
+        };
+
+        assert_eq!(matches.len(), 2);
+
+        let statements = compilation_unit.function_declarations()[0]
+            .body()
+            .statements();
+
+        let StatementSyntax::While(while_statement) = &statements[1] else {
+            panic!("Expected while statement");
+        };
+
+        let while_statements = while_statement.block().statements();
+
+        let StatementSyntax::VariableDeclaration(while_declaration) = &while_statements[0] else {
+            panic!("Expected declaration in while body");
+        };
+
+        let StatementSyntax::For(for_statement) = &while_statements[1] else {
+            panic!("Expected nested for statement");
+        };
+
+        let StatementSyntax::VariableDeclaration(for_declaration) =
+            &for_statement.block().statements()[0]
+        else {
+            panic!("Expected declaration in for body");
+        };
+
+        assert!(std::ptr::eq(matches[0], while_declaration));
+        assert!(std::ptr::eq(matches[1], for_declaration));
+    }
+
+    #[test]
+    fn local_variable_lookup_only_examines_the_enclosing_function() {
+        let source = SourceText::new(
+            "function first() {
+                let target = 1;
+                target();
+            }
+
+            function second() {
+                target();
+                let other = 2;
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 2);
+
+        let functions = compilation_unit.function_declarations();
+
+        assert!(std::ptr::eq(discovered[0].function(), &functions[0]));
+        assert!(std::ptr::eq(discovered[1].function(), &functions[1]));
+
+        let first_result =
+            lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+        let Ok(LocalVariableLookup::Unique(declaration)) = first_result else {
+            panic!("Expected a matching declaration in the first function");
+        };
+
+        let StatementSyntax::VariableDeclaration(expected_declaration) =
+            &functions[0].body().statements()[0]
+        else {
+            panic!("Expected a variable declaration in the first function");
+        };
+
+        assert!(std::ptr::eq(declaration, expected_declaration));
+
+        let second_result =
+            lookup_direct_call_enclosing_function_local_variables(discovered[1], &source);
+
+        assert!(matches!(second_result, Ok(LocalVariableLookup::NotFound)));
+    }
+
+    #[test]
+    fn local_variable_lookup_is_deterministic_across_repeated_calls() {
+        let source = SourceText::new(
+            "function main() {
+                let target = 1;
+
+                if true {
+                    var target = 2;
+                }
+
+                target();
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let first = lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+        let second = lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+        let (
+            Ok(LocalVariableLookup::Multiple(first_matches)),
+            Ok(LocalVariableLookup::Multiple(second_matches)),
+        ) = (first, second)
+        else {
+            panic!("Expected multiple matching declarations in both lookups");
+        };
+
+        assert_eq!(first_matches.len(), 2);
+        assert_eq!(second_matches.len(), 2);
+
+        for (first_declaration, second_declaration) in
+            first_matches.iter().zip(second_matches.iter())
+        {
+            assert!(std::ptr::eq(*first_declaration, *second_declaration));
+        }
+    }
+
+    #[test]
+    fn local_variable_lookup_reports_invalid_call_identifier_span() {
+        let source = SourceText::new(
+            "function main() {
+                let target = 1;
+                target();
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let ExpressionSyntax::Name(name) = discovered[0].call().callee() else {
+            panic!("Expected a direct named call");
+        };
+
+        let expected_span = name.identifier_token().span();
+
+        let unrelated_source = SourceText::new("");
+
+        let result =
+            lookup_direct_call_enclosing_function_local_variables(discovered[0], &unrelated_source);
+
+        assert!(matches!(
+            result,
+            Err(LocalVariableLookupError::InvalidIdentifierSpan(span))
+                if span == expected_span
+        ));
+    }
+
+    #[test]
+    fn local_variable_lookup_reports_invalid_declaration_identifier_span() {
+        for declaration_name in ["target", "other"] {
+            let source = SourceText::new(format!(
+                "function main() {{ target(); let {declaration_name} = 1; }}"
+            ));
+
+            let compilation_unit = Parser::new(&source)
+                .parse_compilation_unit()
+                .expect("Compilation unit should parse");
+
+            let discovered = discover_direct_function_calls(&compilation_unit);
+
+            assert_eq!(discovered.len(), 1);
+
+            let statements = compilation_unit.function_declarations()[0]
+                .body()
+                .statements();
+
+            let StatementSyntax::VariableDeclaration(declaration) = &statements[1] else {
+                panic!("Expected a local variable declaration");
+            };
+
+            let expected_span = declaration.identifier_token().span();
+
+            let unrelated_source = SourceText::new("function main() { target(); }");
+
+            let ExpressionSyntax::Name(call_name) = discovered[0].call().callee() else {
+                panic!("Expected a direct named call");
+            };
+
+            let call_span = call_name.identifier_token().span();
+
+            assert_eq!(unrelated_source.slice(&call_span), Some("target"));
+
+            let result = lookup_direct_call_enclosing_function_local_variables(
+                discovered[0],
+                &unrelated_source,
+            );
+
+            assert!(matches!(
+                result,
+                Err(LocalVariableLookupError::InvalidIdentifierSpan(span))
+                    if span == expected_span
+            ));
+        }
+    }
+
+    #[test]
+    fn local_variable_lookup_preserves_independent_declaration_candidates() {
+        let source = SourceText::new(
+            "function target() {}
+
+            function main(target) {
+                let target = 1;
+                target();
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let functions = compilation_unit.function_declarations();
+
+        assert!(std::ptr::eq(discovered[0].function(), &functions[1]));
+
+        let local_result =
+            lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+        let Ok(LocalVariableLookup::Unique(local_declaration)) = local_result else {
+            panic!("Expected one matching local variable declaration");
+        };
+
+        let StatementSyntax::VariableDeclaration(expected_local) =
+            &functions[1].body().statements()[0]
+        else {
+            panic!("Expected local variable declaration");
+        };
+
+        assert!(std::ptr::eq(local_declaration, expected_local));
+
+        let parameter_result =
+            lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+        let Ok(FunctionParameterLookup::Unique(parameter)) = parameter_result else {
+            panic!("Expected one matching function parameter");
+        };
+
+        assert!(std::ptr::eq(parameter, &functions[1].parameters()[0]));
+
+        let function_result = lookup_direct_call_top_level_functions(
+            &compilation_unit,
+            &source,
+            discovered[0].call(),
+        );
+
+        let Ok(Some(TopLevelFunctionLookup::Unique(function_candidate))) = function_result else {
+            panic!("Expected one matching top-level function");
+        };
+
+        assert!(std::ptr::eq(function_candidate, &functions[0]));
+    }
 
     #[test]
     fn parameter_lookup_returns_not_found_without_matching_parameter() {

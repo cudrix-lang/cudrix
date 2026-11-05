@@ -2040,3 +2040,196 @@ fn public_api_reports_invalid_parameter_lookup_identifier_span() {
             if span == expected_span
     ));
 }
+
+#[test]
+fn public_api_recognizes_local_variables_without_resolving_bindings() {
+    let source = cudrix::source::SourceText::new(
+        "function target() {}
+
+         function main(target) {
+             target();
+
+             let target = 1;
+
+             if true {
+                 var target = 2;
+             }
+         }",
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+    let functions = compilation_unit.function_declarations();
+
+    assert_eq!(discovered.len(), 1);
+    assert!(std::ptr::eq(discovered[0].function(), &functions[1]));
+
+    let local_result =
+        cudrix::lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+    let Ok(cudrix::LocalVariableLookup::Multiple(matches)) = local_result else {
+        panic!("Expected two matching local declarations");
+    };
+
+    assert_eq!(matches.len(), 2);
+
+    let statements = functions[1].body().statements();
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(first_local) = &statements[1] else {
+        panic!("Expected first local declaration");
+    };
+
+    let cudrix::syntax::StatementSyntax::Conditional(conditional) = &statements[2] else {
+        panic!("Expected conditional statement");
+    };
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(nested_local) =
+        &conditional.then_block().statements()[0]
+    else {
+        panic!("Expected nested local declaration");
+    };
+
+    assert!(std::ptr::eq(matches[0], first_local));
+    assert!(std::ptr::eq(matches[1], nested_local));
+
+    assert_eq!(
+        source.slice(&matches[0].declaration_keyword().span()),
+        Some("let")
+    );
+
+    assert_eq!(
+        source.slice(&matches[1].declaration_keyword().span()),
+        Some("var")
+    );
+
+    let parameter_result =
+        cudrix::lookup_direct_call_enclosing_function_parameters(discovered[0], &source);
+
+    let Ok(cudrix::FunctionParameterLookup::Unique(parameter)) = parameter_result else {
+        panic!("Expected matching function parameter");
+    };
+
+    assert!(std::ptr::eq(parameter, &functions[1].parameters()[0]));
+
+    let function_result = cudrix::lookup_direct_call_top_level_functions(
+        &compilation_unit,
+        &source,
+        discovered[0].call(),
+    );
+
+    let Ok(Some(cudrix::TopLevelFunctionLookup::Unique(function_candidate))) = function_result
+    else {
+        panic!("Expected matching top-level function");
+    };
+
+    assert!(std::ptr::eq(function_candidate, &functions[0]));
+}
+
+#[test]
+fn public_api_local_variable_lookup_preserves_function_isolation() {
+    let source = cudrix::source::SourceText::new(
+        "function first() {
+            let value = 1;
+            value();
+        }
+
+        function second() {
+            value();
+        }",
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+    let functions = compilation_unit.function_declarations();
+
+    assert_eq!(discovered.len(), 2);
+
+    assert!(std::ptr::eq(discovered[0].function(), &functions[0]));
+    assert!(std::ptr::eq(discovered[1].function(), &functions[1]));
+
+    let first_result =
+        cudrix::lookup_direct_call_enclosing_function_local_variables(discovered[0], &source);
+
+    let Ok(cudrix::LocalVariableLookup::Unique(declaration)) = first_result else {
+        panic!("Expected one matching local declaration");
+    };
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(expected) =
+        &functions[0].body().statements()[0]
+    else {
+        panic!("Expected local variable declaration");
+    };
+
+    assert!(std::ptr::eq(declaration, expected));
+
+    let second_result =
+        cudrix::lookup_direct_call_enclosing_function_local_variables(discovered[1], &source);
+
+    assert!(matches!(
+        second_result,
+        Ok(cudrix::LocalVariableLookup::NotFound)
+    ));
+}
+
+#[test]
+fn public_api_reports_invalid_local_variable_lookup_identifier_spans() {
+    let source = cudrix::source::SourceText::new("function main() { value(); let other = 1; }");
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    assert_eq!(discovered.len(), 1);
+
+    let cudrix::syntax::ExpressionSyntax::Name(call_name) = discovered[0].call().callee() else {
+        panic!("Expected direct named call");
+    };
+
+    let call_span = call_name.identifier_token().span();
+
+    let statements = compilation_unit.function_declarations()[0]
+        .body()
+        .statements();
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(declaration) = &statements[1] else {
+        panic!("Expected local variable declaration");
+    };
+
+    let declaration_span = declaration.identifier_token().span();
+
+    let empty_source = cudrix::source::SourceText::new("");
+
+    let call_result =
+        cudrix::lookup_direct_call_enclosing_function_local_variables(discovered[0], &empty_source);
+
+    assert!(matches!(
+        call_result,
+        Err(cudrix::LocalVariableLookupError::InvalidIdentifierSpan(span))
+            if span == call_span
+    ));
+
+    let truncated_source = cudrix::source::SourceText::new("function main() { value(); }");
+
+    assert_eq!(truncated_source.slice(&call_span), Some("value"));
+
+    assert!(truncated_source.slice(&declaration_span).is_none());
+
+    let declaration_result = cudrix::lookup_direct_call_enclosing_function_local_variables(
+        discovered[0],
+        &truncated_source,
+    );
+
+    assert!(matches!(
+        declaration_result,
+        Err(cudrix::LocalVariableLookupError::InvalidIdentifierSpan(span))
+            if span == declaration_span
+    ));
+}
