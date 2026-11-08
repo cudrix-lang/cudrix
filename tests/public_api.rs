@@ -2042,6 +2042,118 @@ fn public_api_reports_invalid_parameter_lookup_identifier_span() {
 }
 
 #[test]
+fn public_api_exposes_scope_aware_local_variable_candidates() {
+    let source = cudrix::source::SourceText::new(
+        "function main() {
+            let outer = 1;
+
+            if true {
+                var branch = 2;
+
+                outer();
+                branch();
+            } else {
+                branch();
+            }
+        }",
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    assert_eq!(discovered.len(), 3);
+
+    let function_body = compilation_unit.function_declarations()[0].body();
+
+    let statements = function_body.statements();
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(outer_declaration) = &statements[0]
+    else {
+        panic!("Expected outer declaration");
+    };
+
+    let cudrix::syntax::StatementSyntax::Conditional(conditional) = &statements[1] else {
+        panic!("Expected conditional statement");
+    };
+
+    let if_block = conditional.then_block();
+
+    let else_block = conditional
+        .else_clause()
+        .expect("Expected else clause")
+        .block();
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(branch_declaration) =
+        &if_block.statements()[0]
+    else {
+        panic!("Expected branch declaration");
+    };
+
+    // A nested call recognizes a declaration in its enclosing function body.
+    // The explicit type annotation also verifies the public candidate export.
+    let outer_candidates: Vec<cudrix::EnclosingBlockLocalVariableCandidate<'_>> =
+        cudrix::lookup_direct_call_enclosing_block_local_variable_candidates(
+            discovered[0],
+            &source,
+        )
+        .expect("Outer candidate lookup should succeed");
+
+    assert_eq!(outer_candidates.len(), 1);
+
+    assert!(std::ptr::eq(
+        outer_candidates[0].declaration(),
+        outer_declaration
+    ));
+
+    assert!(std::ptr::eq(outer_candidates[0].block(), function_body));
+
+    // A call inside the if block recognizes its directly contained declaration.
+    let branch_candidates = cudrix::lookup_direct_call_enclosing_block_local_variable_candidates(
+        discovered[1],
+        &source,
+    )
+    .expect("Branch candidate lookup should succeed");
+
+    assert_eq!(branch_candidates.len(), 1);
+
+    assert!(std::ptr::eq(
+        branch_candidates[0].declaration(),
+        branch_declaration
+    ));
+
+    assert!(std::ptr::eq(branch_candidates[0].block(), if_block));
+
+    // The sibling else block does not contain or enclose the declaration.
+    let else_blocks = cudrix::lookup_direct_call_enclosing_blocks(discovered[2]);
+
+    assert_eq!(else_blocks.len(), 2);
+    assert!(std::ptr::eq(else_blocks[0], function_body));
+    assert!(std::ptr::eq(else_blocks[1], else_block));
+
+    let else_candidates = cudrix::lookup_direct_call_enclosing_block_local_variable_candidates(
+        discovered[2],
+        &source,
+    )
+    .expect("Else candidate lookup should succeed");
+
+    assert!(else_candidates.is_empty());
+
+    // The existing function-wide operation must retain its original behavior.
+    let function_wide_result =
+        cudrix::lookup_direct_call_enclosing_function_local_variables(discovered[2], &source)
+            .expect("Function-wide lookup should succeed");
+
+    let cudrix::LocalVariableLookup::Unique(matched_declaration) = function_wide_result else {
+        panic!("Expected function-wide matching declaration");
+    };
+
+    assert!(std::ptr::eq(matched_declaration, branch_declaration));
+}
+
+#[test]
 fn public_api_exposes_lexical_blocks_without_changing_declaration_recognition() {
     let source = cudrix::source::SourceText::new(
         "function main(value) {

@@ -56,6 +56,29 @@ pub enum LocalVariableLookup<'syntax> {
     Multiple(Vec<&'syntax VariableDeclarationStatementSyntax>),
 }
 
+/// A local variable declaration structurally associated with a direct call.
+///
+/// The declaration belongs directly to one of the call's enclosing lexical
+/// blocks. Both references point into the original syntax tree.
+///
+/// This candidate does not establish declaration visibility, shadowing
+/// precedence, name binding, or callability.
+#[derive(Debug, Clone, Copy)]
+pub struct EnclosingBlockLocalVariableCandidate<'syntax> {
+    declaration: &'syntax VariableDeclarationStatementSyntax,
+    block: &'syntax BlockSyntax,
+}
+
+impl<'syntax> EnclosingBlockLocalVariableCandidate<'syntax> {
+    pub fn declaration(&self) -> &'syntax VariableDeclarationStatementSyntax {
+        self.declaration
+    }
+
+    pub fn block(&self) -> &'syntax BlockSyntax {
+        self.block
+    }
+}
+
 /// A direct named function call discovered within a function body.
 ///
 /// Both references point into the original compilation unit syntax tree.
@@ -616,11 +639,555 @@ fn collect_matching_local_variables_in_block<'syntax>(
     Ok(())
 }
 
+/// Finds local variable declaration candidates in the enclosing lexical
+/// blocks of a discovered direct function call.
+///
+/// The supplied `source` must be the same source text used to parse the
+/// syntax tree containing the discovered call.
+///
+/// Only declarations directly contained in the call's enclosing blocks
+/// are considered. Declarations in sibling or descendant blocks are excluded.
+///
+/// Both `let` and `var` declarations are recognized. All matching
+/// declarations are returned in source order, including declarations
+/// appearing after the call.
+///
+/// Each candidate retains references to its original declaration and
+/// immediately containing block.
+///
+/// This operation does not determine declaration visibility, shadowing
+/// precedence, name binding, or callability.
+///
+/// An invalid call or examined declaration identifier span produces an error.
+/// Providing unrelated source text with otherwise valid spans cannot
+/// be detected reliably.
+pub fn lookup_direct_call_enclosing_block_local_variable_candidates<'syntax>(
+    discovered: DiscoveredDirectFunctionCall<'syntax>,
+    source: &SourceText,
+) -> Result<Vec<EnclosingBlockLocalVariableCandidate<'syntax>>, LocalVariableLookupError> {
+    let ExpressionSyntax::Name(name_expression) = discovered.call().callee() else {
+        unreachable!("Discovered direct calls must have named callees");
+    };
+
+    let call_identifier_span = name_expression.identifier_token().span();
+
+    let call_identifier_text = source.slice(&call_identifier_span).ok_or(
+        LocalVariableLookupError::InvalidIdentifierSpan(call_identifier_span),
+    )?;
+
+    let enclosing_blocks = lookup_direct_call_enclosing_blocks(discovered);
+    let mut candidates = Vec::new();
+
+    for block in enclosing_blocks {
+        collect_matching_local_variable_candidates_in_block(
+            block,
+            source,
+            call_identifier_text,
+            &mut candidates,
+        )?;
+    }
+
+    candidates.sort_by_key(|candidate| candidate.declaration().identifier_token().span().start());
+
+    Ok(candidates)
+}
+
+/// Collects matching declarations directly contained in one lexical block.
+///
+/// Nested blocks are not traversed. Each matching declaration is associated
+/// with the block that directly contains it.
+fn collect_matching_local_variable_candidates_in_block<'syntax>(
+    block: &'syntax BlockSyntax,
+    source: &SourceText,
+    name: &str,
+    candidates: &mut Vec<EnclosingBlockLocalVariableCandidate<'syntax>>,
+) -> Result<(), LocalVariableLookupError> {
+    for statement in block.statements() {
+        let StatementSyntax::VariableDeclaration(declaration) = statement else {
+            continue;
+        };
+
+        let identifier_span = declaration.identifier_token().span();
+
+        let identifier_text = source.slice(&identifier_span).ok_or(
+            LocalVariableLookupError::InvalidIdentifierSpan(identifier_span),
+        )?;
+
+        if identifier_text == name {
+            candidates.push(EnclosingBlockLocalVariableCandidate { declaration, block });
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::compiler::Parser;
     use crate::syntax::StatementSyntax;
+
+    #[test]
+    fn scope_aware_local_variable_candidates_preserve_block_identity_and_source_order() {
+        let source = SourceText::new(
+            "function main() {
+            if true {
+                let target = 20;
+                target();
+            }
+
+            let target = 10;
+        }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+
+        let StatementSyntax::Conditional(conditional) = &function_body.statements()[0] else {
+            panic!("Expected conditional statement");
+        };
+
+        let inner_block = conditional.then_block();
+
+        let StatementSyntax::VariableDeclaration(inner_declaration) = &inner_block.statements()[0]
+        else {
+            panic!("Expected inner local declaration");
+        };
+
+        let StatementSyntax::VariableDeclaration(outer_declaration) =
+            &function_body.statements()[1]
+        else {
+            panic!("Expected outer local declaration");
+        };
+
+        let candidates =
+            lookup_direct_call_enclosing_block_local_variable_candidates(discovered[0], &source)
+                .expect("Scope-aware candidate lookup should succeed");
+
+        assert_eq!(candidates.len(), 2);
+
+        // The inner declaration occurs first in source order.
+        assert!(std::ptr::eq(candidates[0].declaration(), inner_declaration));
+        assert!(std::ptr::eq(candidates[0].block(), inner_block));
+
+        // The outer declaration appears later in the source.
+        assert!(std::ptr::eq(candidates[1].declaration(), outer_declaration));
+        assert!(std::ptr::eq(candidates[1].block(), function_body));
+
+        // Candidate ordering follows source position, not block depth.
+        assert!(
+            candidates[0]
+                .declaration()
+                .identifier_token()
+                .span()
+                .start()
+                < candidates[1]
+                    .declaration()
+                    .identifier_token()
+                    .span()
+                    .start()
+        );
+    }
+
+    #[test]
+    fn scope_aware_local_variable_candidates_exclude_sibling_and_descendant_blocks() {
+        let source = SourceText::new(
+            "function main() {
+                if true {
+                    let target = 10;
+                } else {
+                    target();
+                }
+
+                target();
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 2);
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+
+        let StatementSyntax::Conditional(conditional) = &function_body.statements()[0] else {
+            panic!("Expected conditional statement");
+        };
+
+        let then_block = conditional.then_block();
+
+        let else_block = conditional
+            .else_clause()
+            .expect("Expected else clause")
+            .block();
+
+        let StatementSyntax::VariableDeclaration(declaration) = &then_block.statements()[0] else {
+            panic!("Expected local declaration in if block");
+        };
+
+        // The first call belongs to the sibling else block.
+        let else_call_blocks = lookup_direct_call_enclosing_blocks(discovered[0]);
+
+        assert_eq!(else_call_blocks.len(), 2);
+        assert!(std::ptr::eq(else_call_blocks[0], function_body));
+        assert!(std::ptr::eq(else_call_blocks[1], else_block));
+
+        // The second call belongs directly to the function body.
+        let outer_call_blocks = lookup_direct_call_enclosing_blocks(discovered[1]);
+
+        assert_eq!(outer_call_blocks.len(), 1);
+        assert!(std::ptr::eq(outer_call_blocks[0], function_body));
+
+        for discovered_call in discovered {
+            // Neither call has a structurally eligible local declaration.
+            let candidates = lookup_direct_call_enclosing_block_local_variable_candidates(
+                discovered_call,
+                &source,
+            )
+            .expect("Scope-aware lookup should succeed");
+
+            assert!(candidates.is_empty());
+
+            // The existing function-wide lookup must remain unchanged.
+            let function_wide_result =
+                lookup_direct_call_enclosing_function_local_variables(discovered_call, &source)
+                    .expect("Function-wide lookup should succeed");
+
+            let LocalVariableLookup::Unique(matched_declaration) = function_wide_result else {
+                panic!("Expected function-wide matching declaration");
+            };
+
+            assert!(std::ptr::eq(matched_declaration, declaration));
+        }
+    }
+
+    #[test]
+    fn scope_aware_local_variable_candidates_distinguish_conditions_and_loop_bodies() {
+        let source = SourceText::new(
+            "function main() {
+                let outer = 1;
+
+                if inner_if() {
+                    var inner_if = 2;
+                    outer();
+                    inner_if();
+                }
+
+                while inner_while() {
+                    let inner_while = 3;
+                    outer();
+                    inner_while();
+                }
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 6);
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+        let statements = function_body.statements();
+
+        let StatementSyntax::VariableDeclaration(outer_declaration) = &statements[0] else {
+            panic!("Expected outer declaration");
+        };
+
+        let StatementSyntax::Conditional(conditional) = &statements[1] else {
+            panic!("Expected conditional statement");
+        };
+
+        let if_block = conditional.then_block();
+
+        let StatementSyntax::VariableDeclaration(if_declaration) = &if_block.statements()[0] else {
+            panic!("Expected if-block declaration");
+        };
+
+        let StatementSyntax::While(while_statement) = &statements[2] else {
+            panic!("Expected while statement");
+        };
+
+        let while_block = while_statement.block();
+
+        let StatementSyntax::VariableDeclaration(while_declaration) = &while_block.statements()[0]
+        else {
+            panic!("Expected while-block declaration");
+        };
+
+        // Calls in conditions belong to the surrounding function body.
+        // Declarations inside the associated bodies are not candidates.
+        for call_index in [0, 3] {
+            let blocks = lookup_direct_call_enclosing_blocks(discovered[call_index]);
+
+            assert_eq!(blocks.len(), 1);
+            assert!(std::ptr::eq(blocks[0], function_body));
+
+            let candidates = lookup_direct_call_enclosing_block_local_variable_candidates(
+                discovered[call_index],
+                &source,
+            )
+            .expect("Condition candidate lookup should succeed");
+
+            assert!(candidates.is_empty());
+        }
+
+        // Calls inside the bodies recognize declarations from their
+        // own blocks or their enclosing function body.
+        for (call_index, expected_declaration, expected_block) in [
+            (1, outer_declaration, function_body),
+            (2, if_declaration, if_block),
+            (4, outer_declaration, function_body),
+            (5, while_declaration, while_block),
+        ] {
+            let candidates = lookup_direct_call_enclosing_block_local_variable_candidates(
+                discovered[call_index],
+                &source,
+            )
+            .expect("Body candidate lookup should succeed");
+
+            assert_eq!(candidates.len(), 1);
+
+            assert!(std::ptr::eq(
+                candidates[0].declaration(),
+                expected_declaration
+            ));
+
+            assert!(std::ptr::eq(candidates[0].block(), expected_block));
+        }
+    }
+
+    #[test]
+    fn scope_aware_local_variable_candidates_distinguish_for_headers_and_body() {
+        let source = SourceText::new(
+            "function main() {
+                let outer = 1;
+
+                for outer(); body_let(); body_var() {
+                    let body_let = 2;
+                    var body_var = 3;
+
+                    outer();
+                    body_let();
+                    body_var();
+                }
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 6);
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+        let statements = function_body.statements();
+
+        let StatementSyntax::VariableDeclaration(outer_declaration) = &statements[0] else {
+            panic!("Expected outer declaration");
+        };
+
+        let StatementSyntax::For(for_statement) = &statements[1] else {
+            panic!("Expected for statement");
+        };
+
+        let for_body = for_statement.block();
+
+        let StatementSyntax::VariableDeclaration(body_let_declaration) = &for_body.statements()[0]
+        else {
+            panic!("Expected let declaration in for body");
+        };
+
+        let StatementSyntax::VariableDeclaration(body_var_declaration) = &for_body.statements()[1]
+        else {
+            panic!("Expected var declaration in for body");
+        };
+
+        // All three header expressions belong to the function body.
+        for discovered_call in discovered.iter().take(3) {
+            let blocks = lookup_direct_call_enclosing_blocks(*discovered_call);
+
+            assert_eq!(blocks.len(), 1);
+            assert!(std::ptr::eq(blocks[0], function_body));
+        }
+
+        // All three body calls belong to the nested for block.
+        for discovered_call in discovered.iter().skip(3) {
+            let blocks = lookup_direct_call_enclosing_blocks(*discovered_call);
+
+            assert_eq!(blocks.len(), 2);
+            assert!(std::ptr::eq(blocks[0], function_body));
+            assert!(std::ptr::eq(blocks[1], for_body));
+        }
+
+        // Declarations inside the for body are excluded from header calls.
+        for call_index in [1, 2] {
+            let candidates = lookup_direct_call_enclosing_block_local_variable_candidates(
+                discovered[call_index],
+                &source,
+            )
+            .expect("For-header candidate lookup should succeed");
+
+            assert!(candidates.is_empty());
+        }
+
+        // The outer declaration is available as a structural candidate
+        // in both the for initializer and the for body.
+        // Body declarations are candidates only for calls in the body.
+        for (call_index, expected_declaration, expected_block) in [
+            (0, outer_declaration, function_body),
+            (3, outer_declaration, function_body),
+            (4, body_let_declaration, for_body),
+            (5, body_var_declaration, for_body),
+        ] {
+            let candidates = lookup_direct_call_enclosing_block_local_variable_candidates(
+                discovered[call_index],
+                &source,
+            )
+            .expect("For-loop candidate lookup should succeed");
+
+            assert_eq!(candidates.len(), 1);
+
+            assert!(std::ptr::eq(
+                candidates[0].declaration(),
+                expected_declaration
+            ));
+
+            assert!(std::ptr::eq(candidates[0].block(), expected_block));
+        }
+    }
+
+    #[test]
+    fn scope_aware_local_variable_candidates_are_deterministic_across_repeated_lookups() {
+        let source = SourceText::new(
+            "function main() {
+                let target = 10;
+
+                if ready() {
+                    target();
+                }
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 2);
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+
+        let StatementSyntax::VariableDeclaration(declaration) = &function_body.statements()[0]
+        else {
+            panic!("Expected outer local declaration");
+        };
+
+        let first =
+            lookup_direct_call_enclosing_block_local_variable_candidates(discovered[1], &source)
+                .expect("First candidate lookup should succeed");
+
+        let second =
+            lookup_direct_call_enclosing_block_local_variable_candidates(discovered[1], &source)
+                .expect("Second candidate lookup should succeed");
+
+        assert_eq!(first.len(), 1);
+        assert_eq!(second.len(), 1);
+
+        // Both operations must return the original declaration.
+        assert!(std::ptr::eq(first[0].declaration(), declaration));
+        assert!(std::ptr::eq(second[0].declaration(), declaration));
+
+        // Both operations must identify the original containing block.
+        assert!(std::ptr::eq(first[0].block(), function_body));
+        assert!(std::ptr::eq(second[0].block(), function_body));
+
+        // Repeated operations preserve the same syntax-node identities.
+        assert!(std::ptr::eq(
+            first[0].declaration(),
+            second[0].declaration()
+        ));
+
+        assert!(std::ptr::eq(first[0].block(), second[0].block()));
+    }
+
+    #[test]
+    fn scope_aware_local_variable_candidates_report_invalid_identifier_spans() {
+        let source = SourceText::new(
+            "function main() {
+                target();
+                let target = 10;
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(discovered.len(), 1);
+
+        let ExpressionSyntax::Name(name_expression) = discovered[0].call().callee() else {
+            panic!("Expected direct named call");
+        };
+
+        let call_identifier_span = name_expression.identifier_token().span();
+
+        let function_body = compilation_unit.function_declarations()[0].body();
+
+        let StatementSyntax::VariableDeclaration(declaration) = &function_body.statements()[1]
+        else {
+            panic!("Expected local variable declaration");
+        };
+
+        let declaration_identifier_span = declaration.identifier_token().span();
+
+        // An empty source makes the call identifier span invalid.
+        let empty_source = SourceText::new("");
+
+        let call_result = lookup_direct_call_enclosing_block_local_variable_candidates(
+            discovered[0],
+            &empty_source,
+        );
+
+        assert!(matches!(
+            call_result,
+            Err(LocalVariableLookupError::InvalidIdentifierSpan(span))
+                if span == call_identifier_span
+        ));
+
+        // Retain the call identifier but truncate the source before
+        // the declaration identifier.
+        let truncated_source =
+            SourceText::new(&source.as_str()[..declaration_identifier_span.start()]);
+
+        let declaration_result = lookup_direct_call_enclosing_block_local_variable_candidates(
+            discovered[0],
+            &truncated_source,
+        );
+
+        assert!(matches!(
+            declaration_result,
+            Err(LocalVariableLookupError::InvalidIdentifierSpan(span))
+                if span == declaration_identifier_span
+        ));
+    }
 
     #[test]
     fn direct_call_enclosing_blocks_include_function_and_nested_blocks() {
