@@ -16,6 +16,15 @@ This idea reflects the philosophy behind Cudrix: a programming language and tool
 
 Cudrix began development under the working name **Forge**. The forge, anvil, and craft of making remain part of the project's identity, but the name Cudrix shifts the emphasis from the place where work happens to the act of creation itself.
 
+## License
+
+Cudrix is dual-licensed under either of the following licenses, at your option:
+
+- [MIT License](LICENSE-MIT)
+- [Apache License, Version 2.0](LICENSE-APACHE)
+
+Copyright (c) 2026 Todd Fields.
+
 ## Development
 
 Cudrix is being bootstrapped in Rust.
@@ -53,10 +62,13 @@ cargo clippy --all-targets --all-features -- -D warnings
 cargo fmt --check
 
 ```
+
 ```
 cudrix
 ├─ Cargo.lock
 ├─ Cargo.toml
+├─ LICENSE-APACHE
+├─ LICENSE-MIT
 ├─ README.md
 ├─ src
 │  ├─ compiler
@@ -67,7 +79,11 @@ cudrix
 │  │  └─ mod.rs
 │  ├─ lib.rs
 │  ├─ main.rs
-│  └─ source
+│  ├─ semantic
+│  │  └─ mod.rs
+│  ├─ source
+│  │  └─ mod.rs
+│  └─ syntax
 │     └─ mod.rs
 └─ tests
    └─ public_api.rs
