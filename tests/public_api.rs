@@ -2042,6 +2042,128 @@ fn public_api_reports_invalid_parameter_lookup_identifier_span() {
 }
 
 #[test]
+fn public_api_discovers_general_identifier_references() {
+    let source = cudrix::source::SourceText::new(
+        r#"
+function first() {
+    let raw = input;
+    consume(raw);
+}
+
+function second() {
+    var total = 0;
+    total = total + delta;
+}
+"#,
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    // Explicitly verify that the discovery result is publicly accessible.
+    let discovered: Vec<cudrix::DiscoveredIdentifierReference<'_>> =
+        cudrix::discover_identifier_references(&compilation_unit);
+
+    assert_eq!(discovered.len(), 6);
+
+    // Verify that public identifier spans expose the correct source names.
+    let names: Vec<&str> = discovered
+        .iter()
+        .map(|item| {
+            source
+                .slice(&item.reference().identifier_span())
+                .expect("Identifier span should be valid")
+        })
+        .collect();
+
+    assert_eq!(
+        names,
+        ["input", "consume", "raw", "total", "total", "delta"]
+    );
+
+    // Verify that both public reference variants are available.
+    let assignment_targets: Vec<bool> = discovered
+        .iter()
+        .map(|item| {
+            matches!(
+                item.reference(),
+                cudrix::IdentifierReference::AssignmentTarget(_)
+            )
+        })
+        .collect();
+
+    assert_eq!(
+        assignment_targets,
+        [false, false, false, true, false, false]
+    );
+
+    // Verify that each reference retains its enclosing function.
+    let functions = compilation_unit.function_declarations();
+
+    assert_eq!(functions.len(), 2);
+
+    for item in &discovered[..3] {
+        assert!(std::ptr::eq(item.function(), &functions[0]));
+    }
+
+    for item in &discovered[3..] {
+        assert!(std::ptr::eq(item.function(), &functions[1]));
+    }
+
+    // Verify original AST identity for an ordinary name expression.
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(first_declaration) =
+        &functions[0].body().statements()[0]
+    else {
+        panic!("Expected variable declaration");
+    };
+
+    let cudrix::syntax::ExpressionSyntax::Name(initializer_name) = first_declaration.initializer()
+    else {
+        panic!("Expected name expression initializer");
+    };
+
+    let cudrix::IdentifierReference::Name(discovered_name) = discovered[0].reference() else {
+        panic!("Expected ordinary name reference");
+    };
+
+    assert!(std::ptr::eq(discovered_name, initializer_name));
+
+    // Verify original AST identity for an assignment target.
+    let cudrix::syntax::StatementSyntax::Expression(second_statement) =
+        &functions[1].body().statements()[1]
+    else {
+        panic!("Expected expression statement");
+    };
+
+    let cudrix::syntax::ExpressionSyntax::Assignment(assignment) = second_statement.expression()
+    else {
+        panic!("Expected assignment expression");
+    };
+
+    let cudrix::IdentifierReference::AssignmentTarget(discovered_target) =
+        discovered[3].reference()
+    else {
+        panic!("Expected assignment target reference");
+    };
+
+    assert!(std::ptr::eq(discovered_target, assignment));
+
+    // Verify deterministic UTF-8 source ordering.
+    let offsets: Vec<usize> = discovered
+        .iter()
+        .map(|item| item.reference().identifier_span().start())
+        .collect();
+
+    assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+
+    // Existing public direct-call discovery remains available.
+    let direct_calls = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    assert_eq!(direct_calls.len(), 1);
+}
+
+#[test]
 fn public_api_exposes_scope_aware_local_variable_candidates() {
     let source = cudrix::source::SourceText::new(
         "function main() {

@@ -2,9 +2,9 @@
 
 use crate::source::{SourceSpan, SourceText};
 use crate::syntax::{
-    BlockSyntax, CallExpressionSyntax, CompilationUnitSyntax, ExpressionSyntax,
-    FunctionDeclarationSyntax, FunctionParameterSyntax, StatementSyntax,
-    VariableDeclarationStatementSyntax,
+    AssignmentExpressionSyntax, BlockSyntax, CallExpressionSyntax, CompilationUnitSyntax,
+    ExpressionSyntax, FunctionDeclarationSyntax, FunctionParameterSyntax, NameExpressionSyntax,
+    StatementSyntax, VariableDeclarationStatementSyntax,
 };
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +101,97 @@ impl<'syntax> DiscoveredDirectFunctionCall<'syntax> {
     }
 }
 
+/// A syntactic identifier reference within an expression.
+///
+/// References preserve original syntax-node identity.
+/// They do not establish lexical visibility, name binding,
+/// assignment validity, or callability.
+#[derive(Debug, Clone, Copy)]
+pub enum IdentifierReference<'syntax> {
+    Name(&'syntax NameExpressionSyntax),
+    AssignmentTarget(&'syntax AssignmentExpressionSyntax),
+}
+
+impl IdentifierReference<'_> {
+    pub fn identifier_span(&self) -> SourceSpan {
+        match self {
+            Self::Name(name) => name.identifier_token().span(),
+            Self::AssignmentTarget(assignment) => assignment.identifier_token().span(),
+        }
+    }
+}
+
+/// An identifier reference discovered within a function body.
+///
+/// Both the enclosing function and identifier reference point
+/// into the original compilation unit syntax tree.
+///
+/// Discovery does not resolve the identifier to a declaration.
+#[derive(Debug, Clone, Copy)]
+pub struct DiscoveredIdentifierReference<'syntax> {
+    function: &'syntax FunctionDeclarationSyntax,
+    reference: IdentifierReference<'syntax>,
+}
+
+impl<'syntax> DiscoveredIdentifierReference<'syntax> {
+    pub fn function(&self) -> &'syntax FunctionDeclarationSyntax {
+        self.function
+    }
+
+    pub fn reference(&self) -> IdentifierReference<'syntax> {
+        self.reference
+    }
+}
+
+/// Discovers syntactic identifier references in top-level function bodies.
+///
+/// Recognizes name expressions and assignment targets, preserving their
+/// distinct syntactic representations and original syntax-node identities.
+///
+/// Results are ordered by identifier UTF-8 byte source offset.
+/// Multiple occurrences of the same identifier are preserved.
+///
+/// Declaration identifiers, member-access names, and object-member names
+/// are excluded from ordinary identifier-reference discovery.
+///
+/// This operation does not perform lexical visibility analysis, name binding,
+/// assignment validation, type checking, or source span validation.
+pub fn discover_identifier_references<'syntax>(
+    compilation_unit: &'syntax CompilationUnitSyntax,
+) -> Vec<DiscoveredIdentifierReference<'syntax>> {
+    let mut discovered_references = Vec::new();
+
+    for function in compilation_unit.function_declarations() {
+        let mut enclosing_blocks = Vec::new();
+
+        visit_expressions_in_block(
+            function.body(),
+            &mut enclosing_blocks,
+            &mut |expression, _blocks| {
+                let reference = match expression {
+                    ExpressionSyntax::Name(name) => IdentifierReference::Name(name),
+
+                    ExpressionSyntax::Assignment(assignment) => {
+                        IdentifierReference::AssignmentTarget(assignment)
+                    }
+
+                    _ => return,
+                };
+
+                discovered_references.push(DiscoveredIdentifierReference {
+                    function,
+                    reference,
+                });
+            },
+        );
+    }
+
+    discovered_references
+        .sort_by_key(|discovered| discovered.reference().identifier_span().start());
+
+    discovered_references
+}
+
 /// Discovers direct named function calls in top-level function bodies.
 ///
 /// Returns borrowed references to each call and its enclosing function.
@@ -119,11 +210,15 @@ pub fn discover_direct_function_calls<'syntax>(
     for function in compilation_unit.function_declarations() {
         let mut enclosing_blocks = Vec::new();
 
-        visit_direct_calls_in_block(
+        visit_expressions_in_block(
             function.body(),
             &mut enclosing_blocks,
-            &mut |call, _blocks| {
-                discovered_calls.push(DiscoveredDirectFunctionCall { function, call });
+            &mut |expression, _blocks| {
+                if let ExpressionSyntax::Call(call) = expression
+                    && matches!(call.callee(), ExpressionSyntax::Name(_))
+                {
+                    discovered_calls.push(DiscoveredDirectFunctionCall { function, call });
+                }
             },
         );
     }
@@ -156,11 +251,13 @@ pub fn lookup_direct_call_enclosing_blocks<'syntax>(
     let mut enclosing_blocks = Vec::new();
     let mut matching_blocks = None;
 
-    visit_direct_calls_in_block(
+    visit_expressions_in_block(
         discovered.function().body(),
         &mut enclosing_blocks,
-        &mut |call, blocks| {
-            if std::ptr::eq(call, discovered.call()) {
+        &mut |expression, blocks| {
+            if let ExpressionSyntax::Call(call) = expression
+                && std::ptr::eq(call, discovered.call())
+            {
                 matching_blocks = Some(blocks.to_vec());
             }
         },
@@ -169,101 +266,97 @@ pub fn lookup_direct_call_enclosing_blocks<'syntax>(
     matching_blocks.expect("A discovered direct call must belong to its enclosing function")
 }
 
-/// Visits direct named calls within a block and its nested blocks.
+/// Visits expressions within a block and its nested blocks.
 ///
 /// The enclosing block path is maintained from outermost to innermost.
-/// Each visited call is reported with its current enclosing block path.
-fn visit_direct_calls_in_block<'syntax>(
+/// Each visited expression is reported with its current enclosing block path.
+fn visit_expressions_in_block<'syntax>(
     block: &'syntax BlockSyntax,
     enclosing_blocks: &mut Vec<&'syntax BlockSyntax>,
-    on_direct_call: &mut impl FnMut(&'syntax CallExpressionSyntax, &[&'syntax BlockSyntax]),
+    on_expression: &mut impl FnMut(&'syntax ExpressionSyntax, &[&'syntax BlockSyntax]),
 ) {
     enclosing_blocks.push(block);
 
     for statement in block.statements() {
         match statement {
             StatementSyntax::Expression(statement) => {
-                visit_direct_calls_in_expression(
+                visit_expressions_in_expression(
                     statement.expression(),
                     enclosing_blocks,
-                    on_direct_call,
+                    on_expression,
                 );
             }
 
             StatementSyntax::VariableDeclaration(statement) => {
-                visit_direct_calls_in_expression(
+                visit_expressions_in_expression(
                     statement.initializer(),
                     enclosing_blocks,
-                    on_direct_call,
+                    on_expression,
                 );
             }
 
             StatementSyntax::Return(statement) => {
-                visit_direct_calls_in_expression(
+                visit_expressions_in_expression(
                     statement.expression(),
                     enclosing_blocks,
-                    on_direct_call,
+                    on_expression,
                 );
             }
 
             StatementSyntax::Conditional(statement) => {
-                visit_direct_calls_in_expression(
+                visit_expressions_in_expression(
                     statement.condition(),
                     enclosing_blocks,
-                    on_direct_call,
+                    on_expression,
                 );
 
-                visit_direct_calls_in_block(
-                    statement.then_block(),
-                    enclosing_blocks,
-                    on_direct_call,
-                );
+                visit_expressions_in_block(statement.then_block(), enclosing_blocks, on_expression);
 
                 for clause in statement.elseif_clauses() {
-                    visit_direct_calls_in_expression(
+                    visit_expressions_in_expression(
                         clause.condition(),
                         enclosing_blocks,
-                        on_direct_call,
+                        on_expression,
                     );
 
-                    visit_direct_calls_in_block(clause.block(), enclosing_blocks, on_direct_call);
+                    visit_expressions_in_block(clause.block(), enclosing_blocks, on_expression);
                 }
 
                 if let Some(clause) = statement.else_clause() {
-                    visit_direct_calls_in_block(clause.block(), enclosing_blocks, on_direct_call);
+                    visit_expressions_in_block(clause.block(), enclosing_blocks, on_expression);
                 }
             }
 
             StatementSyntax::While(statement) => {
-                visit_direct_calls_in_expression(
+                visit_expressions_in_expression(
                     statement.condition(),
                     enclosing_blocks,
-                    on_direct_call,
+                    on_expression,
                 );
 
-                visit_direct_calls_in_block(statement.block(), enclosing_blocks, on_direct_call);
+                visit_expressions_in_block(statement.block(), enclosing_blocks, on_expression);
             }
 
             StatementSyntax::For(statement) => {
-                visit_direct_calls_in_expression(
+                visit_expressions_in_expression(
                     statement.initializer(),
                     enclosing_blocks,
-                    on_direct_call,
+                    on_expression,
                 );
 
-                visit_direct_calls_in_expression(
+                visit_expressions_in_expression(
                     statement.condition(),
                     enclosing_blocks,
-                    on_direct_call,
+                    on_expression,
                 );
 
-                visit_direct_calls_in_expression(
+                visit_expressions_in_expression(
                     statement.update(),
                     enclosing_blocks,
-                    on_direct_call,
+                    on_expression,
                 );
 
-                visit_direct_calls_in_block(statement.block(), enclosing_blocks, on_direct_call);
+                visit_expressions_in_block(statement.block(), enclosing_blocks, on_expression);
             }
         }
     }
@@ -273,95 +366,93 @@ fn visit_direct_calls_in_block<'syntax>(
         .expect("The current block must exist on the enclosing block path");
 }
 
-/// Visits direct named calls within an expression and its nested expressions.
+/// Visits an expression and its nested expressions.
 ///
+/// Each expression is reported before its children are traversed.
 /// Expression traversal preserves the surrounding block path.
 /// Nested expressions do not introduce new block contexts.
-fn visit_direct_calls_in_expression<'syntax>(
+fn visit_expressions_in_expression<'syntax>(
     expression: &'syntax ExpressionSyntax,
     enclosing_blocks: &mut Vec<&'syntax BlockSyntax>,
-    on_direct_call: &mut impl FnMut(&'syntax CallExpressionSyntax, &[&'syntax BlockSyntax]),
+    on_expression: &mut impl FnMut(&'syntax ExpressionSyntax, &[&'syntax BlockSyntax]),
 ) {
+    on_expression(expression, enclosing_blocks);
     match expression {
         ExpressionSyntax::Literal(_) | ExpressionSyntax::Name(_) => {}
 
         ExpressionSyntax::Unary(unary) => {
-            visit_direct_calls_in_expression(unary.operand(), enclosing_blocks, on_direct_call);
+            visit_expressions_in_expression(unary.operand(), enclosing_blocks, on_expression);
         }
 
         ExpressionSyntax::Binary(binary) => {
-            visit_direct_calls_in_expression(binary.left(), enclosing_blocks, on_direct_call);
+            visit_expressions_in_expression(binary.left(), enclosing_blocks, on_expression);
 
-            visit_direct_calls_in_expression(binary.right(), enclosing_blocks, on_direct_call);
+            visit_expressions_in_expression(binary.right(), enclosing_blocks, on_expression);
         }
 
         ExpressionSyntax::Conditional(conditional) => {
-            visit_direct_calls_in_expression(
+            visit_expressions_in_expression(
                 conditional.condition(),
                 enclosing_blocks,
-                on_direct_call,
+                on_expression,
             );
 
-            visit_direct_calls_in_expression(
+            visit_expressions_in_expression(
                 conditional.when_true(),
                 enclosing_blocks,
-                on_direct_call,
+                on_expression,
             );
 
-            visit_direct_calls_in_expression(
+            visit_expressions_in_expression(
                 conditional.when_false(),
                 enclosing_blocks,
-                on_direct_call,
+                on_expression,
             );
         }
 
         ExpressionSyntax::Assignment(assignment) => {
-            visit_direct_calls_in_expression(
+            visit_expressions_in_expression(
                 assignment.expression(),
                 enclosing_blocks,
-                on_direct_call,
+                on_expression,
             );
         }
 
         ExpressionSyntax::MemberAccess(member) => {
-            visit_direct_calls_in_expression(member.expression(), enclosing_blocks, on_direct_call);
+            visit_expressions_in_expression(member.expression(), enclosing_blocks, on_expression);
         }
 
         ExpressionSyntax::Index(index) => {
-            visit_direct_calls_in_expression(index.expression(), enclosing_blocks, on_direct_call);
+            visit_expressions_in_expression(index.expression(), enclosing_blocks, on_expression);
 
-            visit_direct_calls_in_expression(index.index(), enclosing_blocks, on_direct_call);
+            visit_expressions_in_expression(index.index(), enclosing_blocks, on_expression);
         }
 
         ExpressionSyntax::ArrayLiteral(array) => {
             for element in array.elements() {
-                visit_direct_calls_in_expression(element, enclosing_blocks, on_direct_call);
+                visit_expressions_in_expression(element, enclosing_blocks, on_expression);
             }
         }
 
         ExpressionSyntax::ObjectLiteral(object) => {
             for member in object.members() {
-                visit_direct_calls_in_expression(member.value(), enclosing_blocks, on_direct_call);
+                visit_expressions_in_expression(member.value(), enclosing_blocks, on_expression);
             }
         }
 
         ExpressionSyntax::Call(call) => {
-            if matches!(call.callee(), ExpressionSyntax::Name(_)) {
-                on_direct_call(call, enclosing_blocks);
-            }
-
-            visit_direct_calls_in_expression(call.callee(), enclosing_blocks, on_direct_call);
+            visit_expressions_in_expression(call.callee(), enclosing_blocks, on_expression);
 
             for argument in call.arguments() {
-                visit_direct_calls_in_expression(argument, enclosing_blocks, on_direct_call);
+                visit_expressions_in_expression(argument, enclosing_blocks, on_expression);
             }
         }
 
         ExpressionSyntax::Parenthesized(parenthesized) => {
-            visit_direct_calls_in_expression(
+            visit_expressions_in_expression(
                 parenthesized.expression(),
                 enclosing_blocks,
-                on_direct_call,
+                on_expression,
             );
         }
     }
@@ -726,6 +817,453 @@ mod tests {
     use super::*;
     use crate::compiler::Parser;
     use crate::syntax::StatementSyntax;
+
+    #[test]
+    fn identifier_discovery_recognizes_for_header_and_body_references() {
+        let source = SourceText::new(
+            r#"
+function main() {
+    var i = 0;
+
+    for i = start + offset; i < limit && ready; i = i + step * 2 {
+        consume(i);
+    }
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        let references: Vec<(&str, bool)> = discovered
+            .iter()
+            .map(|item| {
+                let reference = item.reference();
+
+                let name = source
+                    .slice(&reference.identifier_span())
+                    .expect("Identifier span should be valid");
+
+                let is_assignment_target =
+                    matches!(reference, IdentifierReference::AssignmentTarget(_));
+
+                (name, is_assignment_target)
+            })
+            .collect();
+
+        assert_eq!(
+            references,
+            [
+                ("i", true),
+                ("start", false),
+                ("offset", false),
+                ("i", false),
+                ("limit", false),
+                ("ready", false),
+                ("i", true),
+                ("i", false),
+                ("step", false),
+                ("consume", false),
+                ("i", false),
+            ]
+        );
+
+        assert_eq!(discovered.len(), 11);
+
+        // All references belong to the original enclosing function.
+        let function = &compilation_unit.function_declarations()[0];
+
+        for item in &discovered {
+            assert!(std::ptr::eq(item.function(), function));
+        }
+
+        // Identify the original for statement.
+        let StatementSyntax::For(for_statement) = &function.body().statements()[1] else {
+            panic!("Expected for statement");
+        };
+
+        // The initializer assignment target retains AST identity.
+        let ExpressionSyntax::Assignment(initializer) = for_statement.initializer() else {
+            panic!("Expected initializer assignment");
+        };
+
+        let IdentifierReference::AssignmentTarget(initializer_target) = discovered[0].reference()
+        else {
+            panic!("Expected initializer assignment target");
+        };
+
+        assert!(std::ptr::eq(initializer_target, initializer));
+
+        // The update assignment target also retains AST identity.
+        let ExpressionSyntax::Assignment(update) = for_statement.update() else {
+            panic!("Expected update assignment");
+        };
+
+        let IdentifierReference::AssignmentTarget(update_target) = discovered[6].reference() else {
+            panic!("Expected update assignment target");
+        };
+
+        assert!(std::ptr::eq(update_target, update));
+
+        // Discovery results remain ordered by UTF-8 source offset.
+        let offsets: Vec<usize> = discovered
+            .iter()
+            .map(|item| item.reference().identifier_span().start())
+            .collect();
+
+        assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+
+        // Existing direct-call discovery remains unchanged.
+        let direct_calls = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(direct_calls.len(), 1);
+
+        let ExpressionSyntax::Name(callee) = direct_calls[0].call().callee() else {
+            panic!("Expected named direct-call callee");
+        };
+
+        assert_eq!(
+            source.slice(&callee.identifier_token().span()),
+            Some("consume")
+        );
+    }
+
+    #[test]
+    fn identifier_discovery_preserves_function_isolation_and_determinism() {
+        let source = SourceText::new(
+            r#"
+function first() {
+    let value = 1;
+    consume(value);
+}
+
+function second() {
+    var value = 2;
+    value = value + delta;
+    consume(value);
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let first = discover_identifier_references(&compilation_unit);
+        let second = discover_identifier_references(&compilation_unit);
+
+        assert_eq!(first.len(), 7);
+        assert_eq!(second.len(), first.len());
+
+        let functions = compilation_unit.function_declarations();
+
+        assert_eq!(functions.len(), 2);
+
+        let first_function = &functions[0];
+        let second_function = &functions[1];
+
+        // References must retain their original enclosing function.
+        for item in &first[..2] {
+            assert!(std::ptr::eq(item.function(), first_function));
+        }
+
+        for item in &first[2..] {
+            assert!(std::ptr::eq(item.function(), second_function));
+        }
+
+        // Repeated discovery must preserve names, kinds, and AST identity.
+        let expected = [
+            ("consume", false),
+            ("value", false),
+            ("value", true),
+            ("value", false),
+            ("delta", false),
+            ("consume", false),
+            ("value", false),
+        ];
+
+        for ((first_item, second_item), (expected_name, expected_assignment)) in
+            first.iter().zip(second.iter()).zip(expected)
+        {
+            let first_reference = first_item.reference();
+            let second_reference = second_item.reference();
+
+            let name = source
+                .slice(&first_reference.identifier_span())
+                .expect("Identifier span should be valid");
+
+            assert_eq!(name, expected_name);
+
+            assert_eq!(
+                matches!(first_reference, IdentifierReference::AssignmentTarget(_)),
+                expected_assignment
+            );
+
+            assert_eq!(
+                first_reference.identifier_span(),
+                second_reference.identifier_span()
+            );
+
+            assert!(std::ptr::eq(first_item.function(), second_item.function()));
+
+            match (first_reference, second_reference) {
+                (IdentifierReference::Name(first_name), IdentifierReference::Name(second_name)) => {
+                    assert!(std::ptr::eq(first_name, second_name));
+                }
+
+                (
+                    IdentifierReference::AssignmentTarget(first_assignment),
+                    IdentifierReference::AssignmentTarget(second_assignment),
+                ) => {
+                    assert!(std::ptr::eq(first_assignment, second_assignment));
+                }
+
+                _ => panic!("Reference kinds must match"),
+            }
+        }
+
+        // References must be ordered by UTF-8 source position.
+        let offsets: Vec<usize> = first
+            .iter()
+            .map(|item| item.reference().identifier_span().start())
+            .collect();
+
+        assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+
+        // Existing direct-call discovery remains unchanged.
+        let direct_calls = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(direct_calls.len(), 2);
+    }
+
+    #[test]
+    fn identifier_discovery_traverses_control_flow_and_nested_calls() {
+        let source = SourceText::new(
+            r#"
+function main() {
+    if ready {
+        outer(inner(value));
+    } elseif retry {
+        retry_call(value);
+    } else {
+        fallback(other);
+    }
+
+    while active {
+        tick(counter);
+    }
+
+    return finish(result);
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        let names: Vec<&str> = discovered
+            .iter()
+            .map(|item| {
+                source
+                    .slice(&item.reference().identifier_span())
+                    .expect("Identifier span should be valid")
+            })
+            .collect();
+
+        assert_eq!(
+            names,
+            [
+                "ready",
+                "outer",
+                "inner",
+                "value",
+                "retry",
+                "retry_call",
+                "value",
+                "fallback",
+                "other",
+                "active",
+                "tick",
+                "counter",
+                "finish",
+                "result",
+            ]
+        );
+
+        assert_eq!(discovered.len(), 14);
+
+        // Every reference belongs to the original enclosing function.
+        let function = &compilation_unit.function_declarations()[0];
+
+        for item in &discovered {
+            assert!(std::ptr::eq(item.function(), function));
+        }
+
+        // All discovered references are ordinary name expressions.
+        assert!(
+            discovered
+                .iter()
+                .all(|item| matches!(item.reference(), IdentifierReference::Name(_)))
+        );
+
+        // Existing direct-call discovery must remain unchanged.
+        let direct_calls = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(direct_calls.len(), 6);
+    }
+
+    #[test]
+    fn identifier_discovery_traverses_nested_expressions_and_excludes_member_names() {
+        let source = SourceText::new(
+            r#"
+function main() {
+    let item = { price: amount };
+    process(item.price, [item, amount], item[index]);
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        let names: Vec<&str> = discovered
+            .iter()
+            .map(|item| {
+                source
+                    .slice(&item.reference().identifier_span())
+                    .expect("Identifier span should be valid")
+            })
+            .collect();
+
+        assert_eq!(
+            names,
+            [
+                "amount", "process", "item", "item", "amount", "item", "index",
+            ]
+        );
+
+        assert_eq!(discovered.len(), 7);
+
+        // Every discovered reference is an ordinary name expression.
+        assert!(
+            discovered
+                .iter()
+                .all(|item| matches!(item.reference(), IdentifierReference::Name(_)))
+        );
+
+        // Source ordering must remain deterministic.
+        let offsets: Vec<usize> = discovered
+            .iter()
+            .map(|item| item.reference().identifier_span().start())
+            .collect();
+
+        assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+
+        // Existing direct-call discovery remains unchanged.
+        let direct_calls = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(direct_calls.len(), 1);
+    }
+
+    #[test]
+    fn identifier_discovery_preserves_kinds_source_order_and_ast_identity() {
+        let source = SourceText::new(
+            "function main() {
+                var counter = 0;
+                counter = counter + increment;
+                report(counter);
+            }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        assert_eq!(discovered.len(), 5);
+
+        let references: Vec<(&str, bool)> = discovered
+            .iter()
+            .map(|item| {
+                let reference = item.reference();
+
+                let name = source
+                    .slice(&reference.identifier_span())
+                    .expect("Identifier span should be valid");
+
+                let is_assignment_target =
+                    matches!(reference, IdentifierReference::AssignmentTarget(_));
+
+                (name, is_assignment_target)
+            })
+            .collect();
+
+        assert_eq!(
+            references,
+            vec![
+                ("counter", true),
+                ("counter", false),
+                ("increment", false),
+                ("report", false),
+                ("counter", false),
+            ]
+        );
+
+        let function = &compilation_unit.function_declarations()[0];
+
+        for item in &discovered {
+            assert!(std::ptr::eq(item.function(), function));
+        }
+
+        let StatementSyntax::Expression(statement) = &function.body().statements()[1] else {
+            panic!("Expected assignment expression statement");
+        };
+
+        let ExpressionSyntax::Assignment(assignment) = statement.expression() else {
+            panic!("Expected assignment expression");
+        };
+
+        let IdentifierReference::AssignmentTarget(target) = discovered[0].reference() else {
+            panic!("Expected assignment target reference");
+        };
+
+        assert!(std::ptr::eq(target, assignment));
+
+        let ExpressionSyntax::Binary(binary) = assignment.expression() else {
+            panic!("Expected binary expression");
+        };
+
+        let ExpressionSyntax::Name(rhs_name) = binary.left() else {
+            panic!("Expected right-hand name expression");
+        };
+
+        let IdentifierReference::Name(discovered_name) = discovered[1].reference() else {
+            panic!("Expected ordinary name reference");
+        };
+
+        assert!(std::ptr::eq(discovered_name, rhs_name));
+
+        let offsets: Vec<usize> = discovered
+            .iter()
+            .map(|item| item.reference().identifier_span().start())
+            .collect();
+
+        assert!(offsets.windows(2).all(|pair| pair[0] < pair[1]));
+
+        let direct_calls = discover_direct_function_calls(&compilation_unit);
+
+        assert_eq!(direct_calls.len(), 1);
+    }
 
     #[test]
     fn scope_aware_local_variable_candidates_preserve_block_identity_and_source_order() {

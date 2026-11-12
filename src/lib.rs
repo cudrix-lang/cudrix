@@ -5,9 +5,10 @@ pub mod source;
 pub mod syntax;
 
 pub use semantic::{
-    DiscoveredDirectFunctionCall, EnclosingBlockLocalVariableCandidate, FunctionLookupError,
-    FunctionParameterLookup, LocalVariableLookup, LocalVariableLookupError, ParameterLookupError,
-    TopLevelFunctionLookup, discover_direct_function_calls,
+    DiscoveredDirectFunctionCall, DiscoveredIdentifierReference,
+    EnclosingBlockLocalVariableCandidate, FunctionLookupError, FunctionParameterLookup,
+    IdentifierReference, LocalVariableLookup, LocalVariableLookupError, ParameterLookupError,
+    TopLevelFunctionLookup, discover_direct_function_calls, discover_identifier_references,
     lookup_direct_call_enclosing_block_local_variable_candidates,
     lookup_direct_call_enclosing_blocks, lookup_direct_call_enclosing_function_local_variables,
     lookup_direct_call_enclosing_function_parameters, lookup_direct_call_top_level_functions,
