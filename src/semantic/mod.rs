@@ -266,6 +266,53 @@ pub fn lookup_direct_call_enclosing_blocks<'syntax>(
     matching_blocks.expect("A discovered direct call must belong to its enclosing function")
 }
 
+/// Returns the enclosing block chain of a discovered identifier reference.
+///
+/// Blocks are ordered from the enclosing function body to the innermost
+/// block containing the reference. The function body is always included.
+///
+/// Both ordinary name expressions and assignment targets are matched
+/// using their original syntax-node identities.
+///
+/// The returned references point into the original syntax tree.
+/// No syntax nodes are cloned or modified.
+///
+/// This operation recognizes structural block containment only.
+/// It does not determine declaration visibility, shadowing, name binding,
+/// or assignment validity.
+pub fn lookup_identifier_reference_enclosing_blocks<'syntax>(
+    discovered: DiscoveredIdentifierReference<'syntax>,
+) -> Vec<&'syntax BlockSyntax> {
+    let mut enclosing_blocks = Vec::new();
+    let mut matching_blocks = None;
+
+    visit_expressions_in_block(
+        discovered.function().body(),
+        &mut enclosing_blocks,
+        &mut |expression, blocks| {
+            let matches_reference = match (expression, discovered.reference()) {
+                (ExpressionSyntax::Name(name), IdentifierReference::Name(reference)) => {
+                    std::ptr::eq(name, reference)
+                }
+
+                (
+                    ExpressionSyntax::Assignment(assignment),
+                    IdentifierReference::AssignmentTarget(reference),
+                ) => std::ptr::eq(assignment, reference),
+
+                _ => false,
+            };
+
+            if matches_reference {
+                matching_blocks = Some(blocks.to_vec());
+            }
+        },
+    );
+
+    matching_blocks
+        .expect("A discovered identifier reference must belong to its enclosing function")
+}
+
 /// Visits expressions within a block and its nested blocks.
 ///
 /// The enclosing block path is maintained from outermost to innermost.
@@ -817,6 +864,877 @@ mod tests {
     use super::*;
     use crate::compiler::Parser;
     use crate::syntax::StatementSyntax;
+
+    #[test]
+    fn identifier_reference_enclosing_blocks_preserve_name_and_assignment_target_identity() {
+        let source = SourceText::new(
+            r#"
+function main() {
+    let value = seed;
+
+    if ready {
+        value = value + increment;
+    }
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        assert_eq!(discovered.len(), 5);
+
+        let function = &compilation_unit.function_declarations()[0];
+        let function_body = function.body();
+
+        let StatementSyntax::VariableDeclaration(declaration) = &function_body.statements()[0]
+        else {
+            panic!("Expected variable declaration");
+        };
+
+        let StatementSyntax::Conditional(conditional) = &function_body.statements()[1] else {
+            panic!("Expected conditional statement");
+        };
+
+        let if_block = conditional.then_block();
+
+        // References must retain their original enclosing function.
+        for item in &discovered {
+            assert!(std::ptr::eq(item.function(), function));
+        }
+
+        // Verify identifier discovery order.
+        let names: Vec<&str> = discovered
+            .iter()
+            .map(|item| {
+                source
+                    .slice(&item.reference().identifier_span())
+                    .expect("Identifier span should be valid")
+            })
+            .collect();
+
+        assert_eq!(names, ["seed", "ready", "value", "value", "increment"]);
+
+        // The initializer and condition belong to the function body.
+        for item in &discovered[..2] {
+            let blocks = lookup_identifier_reference_enclosing_blocks(*item);
+
+            assert_eq!(blocks.len(), 1);
+            assert!(std::ptr::eq(blocks[0], function_body));
+        }
+
+        // The assignment target and right-hand references belong
+        // to the function body and the nested conditional block.
+        for item in &discovered[2..] {
+            let blocks = lookup_identifier_reference_enclosing_blocks(*item);
+
+            assert_eq!(blocks.len(), 2);
+            assert!(std::ptr::eq(blocks[0], function_body));
+            assert!(std::ptr::eq(blocks[1], if_block));
+        }
+
+        // Verify the initializer's original name-expression identity.
+        let ExpressionSyntax::Name(initializer_name) = declaration.initializer() else {
+            panic!("Expected name expression initializer");
+        };
+
+        let IdentifierReference::Name(discovered_name) = discovered[0].reference() else {
+            panic!("Expected ordinary name reference");
+        };
+
+        assert!(std::ptr::eq(initializer_name, discovered_name));
+
+        // Verify the assignment target's original syntax-node identity.
+        let StatementSyntax::Expression(expression_statement) = &if_block.statements()[0] else {
+            panic!("Expected expression statement");
+        };
+
+        let ExpressionSyntax::Assignment(assignment) = expression_statement.expression() else {
+            panic!("Expected assignment expression");
+        };
+
+        let IdentifierReference::AssignmentTarget(discovered_target) = discovered[2].reference()
+        else {
+            panic!("Expected assignment target reference");
+        };
+
+        assert!(std::ptr::eq(assignment, discovered_target));
+
+        // Repeated lookups must preserve lexical block identity.
+        let first = lookup_identifier_reference_enclosing_blocks(discovered[2]);
+        let second = lookup_identifier_reference_enclosing_blocks(discovered[2]);
+
+        assert_eq!(first.len(), second.len());
+
+        for (first_block, second_block) in first.iter().zip(second.iter()) {
+            assert!(std::ptr::eq(*first_block, *second_block));
+        }
+    }
+
+    #[test]
+    fn identifier_reference_enclosing_blocks_distinguish_conditional_branches() {
+        let source = SourceText::new(
+            r#"
+function main() {
+    if primary {
+        first_value;
+
+        if nested_condition {
+            nested_value;
+        }
+    } elseif secondary {
+        alternate_value;
+    } else {
+        fallback_value;
+    }
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        assert_eq!(discovered.len(), 7);
+
+        let function = &compilation_unit.function_declarations()[0];
+        let function_body = function.body();
+
+        let StatementSyntax::Conditional(conditional) = &function_body.statements()[0] else {
+            panic!("Expected outer conditional statement");
+        };
+
+        let if_block = conditional.then_block();
+
+        let elseif_block = conditional.elseif_clauses()[0].block();
+
+        let else_block = conditional
+            .else_clause()
+            .expect("Expected else clause")
+            .block();
+
+        let StatementSyntax::Conditional(nested_conditional) = &if_block.statements()[1] else {
+            panic!("Expected nested conditional statement");
+        };
+
+        let nested_block = nested_conditional.then_block();
+
+        // Verify identifier discovery order.
+        let names: Vec<&str> = discovered
+            .iter()
+            .map(|item| {
+                source
+                    .slice(&item.reference().identifier_span())
+                    .expect("Identifier span should be valid")
+            })
+            .collect();
+
+        assert_eq!(
+            names,
+            [
+                "primary",
+                "first_value",
+                "nested_condition",
+                "nested_value",
+                "secondary",
+                "alternate_value",
+                "fallback_value",
+            ]
+        );
+
+        // Expected ancestry is ordered from outermost to innermost.
+        let expected_blocks = [
+            vec![function_body],
+            vec![function_body, if_block],
+            vec![function_body, if_block],
+            vec![function_body, if_block, nested_block],
+            vec![function_body],
+            vec![function_body, elseif_block],
+            vec![function_body, else_block],
+        ];
+
+        for (item, expected_path) in discovered.iter().zip(expected_blocks.iter()) {
+            assert!(std::ptr::eq(item.function(), function));
+
+            let actual_path = lookup_identifier_reference_enclosing_blocks(*item);
+
+            assert_eq!(actual_path.len(), expected_path.len());
+
+            for (actual_block, expected_block) in actual_path.iter().zip(expected_path.iter()) {
+                assert!(std::ptr::eq(*actual_block, *expected_block));
+            }
+        }
+
+        // Sibling branches must preserve distinct block identities.
+        assert!(!std::ptr::eq(if_block, elseif_block));
+        assert!(!std::ptr::eq(if_block, else_block));
+        assert!(!std::ptr::eq(elseif_block, else_block));
+
+        // The nested block must remain distinct from its parent.
+        assert!(!std::ptr::eq(if_block, nested_block));
+
+        // The elseif condition must not inherit the preceding if block.
+        let elseif_condition_blocks = lookup_identifier_reference_enclosing_blocks(discovered[4]);
+
+        assert_eq!(elseif_condition_blocks.len(), 1);
+        assert!(std::ptr::eq(elseif_condition_blocks[0], function_body));
+
+        // Repeated lookups must preserve the original block identities.
+        let first = lookup_identifier_reference_enclosing_blocks(discovered[3]);
+
+        let second = lookup_identifier_reference_enclosing_blocks(discovered[3]);
+
+        assert_eq!(first.len(), second.len());
+
+        for (first_block, second_block) in first.iter().zip(second.iter()) {
+            assert!(std::ptr::eq(*first_block, *second_block));
+        }
+    }
+
+    #[test]
+    fn identifier_reference_enclosing_blocks_distinguish_loop_headers_and_bodies() {
+        let source = SourceText::new(
+            r#"
+function main() {
+    var i = 0;
+
+    while keep_running {
+        tick(i);
+
+        while nested_ready {
+            i = i + delta;
+        }
+    }
+
+    for i = begin + offset; i < limit && allowed; i = i + step {
+        consume(i);
+
+        while continue_loop {
+            record(i);
+        }
+    }
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        assert_eq!(discovered.len(), 21);
+
+        let function = &compilation_unit.function_declarations()[0];
+        let function_body = function.body();
+
+        let StatementSyntax::While(outer_while) = &function_body.statements()[1] else {
+            panic!("Expected outer while statement");
+        };
+
+        let outer_while_block = outer_while.block();
+
+        let StatementSyntax::While(nested_while) = &outer_while_block.statements()[1] else {
+            panic!("Expected nested while statement");
+        };
+
+        let nested_while_block = nested_while.block();
+
+        let StatementSyntax::For(for_statement) = &function_body.statements()[2] else {
+            panic!("Expected for statement");
+        };
+
+        let for_block = for_statement.block();
+
+        let StatementSyntax::While(for_nested_while) = &for_block.statements()[1] else {
+            panic!("Expected while statement inside for body");
+        };
+
+        let for_nested_while_block = for_nested_while.block();
+
+        // Verify identifier discovery order.
+        let names: Vec<&str> = discovered
+            .iter()
+            .map(|item| {
+                source
+                    .slice(&item.reference().identifier_span())
+                    .expect("Identifier span should be valid")
+            })
+            .collect();
+
+        assert_eq!(
+            names,
+            [
+                "keep_running",
+                "tick",
+                "i",
+                "nested_ready",
+                "i",
+                "i",
+                "delta",
+                "i",
+                "begin",
+                "offset",
+                "i",
+                "limit",
+                "allowed",
+                "i",
+                "i",
+                "step",
+                "consume",
+                "i",
+                "continue_loop",
+                "record",
+                "i",
+            ]
+        );
+
+        // Each range identifies references sharing the same
+        // lexical ancestry, ordered outermost to innermost.
+        let expected_groups = [
+            (0..1, vec![function_body]),
+            (1..4, vec![function_body, outer_while_block]),
+            (
+                4..7,
+                vec![function_body, outer_while_block, nested_while_block],
+            ),
+            (7..16, vec![function_body]),
+            (16..19, vec![function_body, for_block]),
+            (
+                19..21,
+                vec![function_body, for_block, for_nested_while_block],
+            ),
+        ];
+
+        for (indices, expected_path) in expected_groups {
+            for index in indices {
+                let item = discovered[index];
+
+                assert!(std::ptr::eq(item.function(), function));
+
+                let actual_path = lookup_identifier_reference_enclosing_blocks(item);
+
+                assert_eq!(
+                    actual_path.len(),
+                    expected_path.len(),
+                    "Unexpected ancestry depth for reference {index}"
+                );
+
+                for (actual_block, expected_block) in actual_path.iter().zip(expected_path.iter()) {
+                    assert!(
+                        std::ptr::eq(*actual_block, *expected_block),
+                        "Incorrect block identity for reference {index}"
+                    );
+                }
+            }
+        }
+
+        // The for initializer and update assignment targets
+        // must preserve their original AST identities.
+        let ExpressionSyntax::Assignment(initializer) = for_statement.initializer() else {
+            panic!("Expected for initializer assignment");
+        };
+
+        let IdentifierReference::AssignmentTarget(initializer_target) = discovered[7].reference()
+        else {
+            panic!("Expected initializer assignment target");
+        };
+
+        assert!(std::ptr::eq(initializer, initializer_target));
+
+        let ExpressionSyntax::Assignment(update) = for_statement.update() else {
+            panic!("Expected for update assignment");
+        };
+
+        let IdentifierReference::AssignmentTarget(update_target) = discovered[13].reference()
+        else {
+            panic!("Expected update assignment target");
+        };
+
+        assert!(std::ptr::eq(update, update_target));
+
+        // The nested while assignment target must belong
+        // to the nested loop body, not merely its parent.
+        let StatementSyntax::Expression(nested_statement) = &nested_while_block.statements()[0]
+        else {
+            panic!("Expected nested assignment statement");
+        };
+
+        let ExpressionSyntax::Assignment(nested_assignment) = nested_statement.expression() else {
+            panic!("Expected nested assignment expression");
+        };
+
+        let IdentifierReference::AssignmentTarget(nested_target) = discovered[4].reference() else {
+            panic!("Expected nested assignment target");
+        };
+
+        assert!(std::ptr::eq(nested_assignment, nested_target));
+
+        // Distinct loop bodies must retain distinct block identities.
+        assert!(!std::ptr::eq(outer_while_block, nested_while_block));
+        assert!(!std::ptr::eq(outer_while_block, for_block));
+        assert!(!std::ptr::eq(for_block, for_nested_while_block));
+
+        // Repeated ancestry lookups must preserve exact block identities.
+        let first = lookup_identifier_reference_enclosing_blocks(discovered[20]);
+
+        let second = lookup_identifier_reference_enclosing_blocks(discovered[20]);
+
+        assert_eq!(first.len(), second.len());
+
+        for (first_block, second_block) in first.iter().zip(second.iter()) {
+            assert!(std::ptr::eq(*first_block, *second_block));
+        }
+    }
+
+    #[test]
+    fn identifier_reference_enclosing_blocks_preserve_nested_expressions_and_function_isolation() {
+        let source = SourceText::new(
+            r#"
+function first() {
+    let value = initial;
+    emit(transform((value + offset)), value);
+    return value;
+}
+
+function second() {
+    let value = initial;
+
+    if ready {
+        value = value + delta;
+        emit(value);
+    }
+
+    return value;
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        assert_eq!(discovered.len(), 15);
+
+        let functions = compilation_unit.function_declarations();
+
+        assert_eq!(functions.len(), 2);
+
+        let first_function = &functions[0];
+        let second_function = &functions[1];
+
+        let first_body = first_function.body();
+        let second_body = second_function.body();
+
+        let StatementSyntax::Conditional(conditional) = &second_body.statements()[1] else {
+            panic!("Expected conditional statement");
+        };
+
+        let if_block = conditional.then_block();
+
+        // Verify identifier discovery order across both functions.
+        let names: Vec<&str> = discovered
+            .iter()
+            .map(|item| {
+                source
+                    .slice(&item.reference().identifier_span())
+                    .expect("Identifier span should be valid")
+            })
+            .collect();
+
+        assert_eq!(
+            names,
+            [
+                "initial",
+                "emit",
+                "transform",
+                "value",
+                "offset",
+                "value",
+                "value",
+                "initial",
+                "ready",
+                "value",
+                "value",
+                "delta",
+                "emit",
+                "value",
+                "value",
+            ]
+        );
+
+        // References in the first function retain their
+        // original enclosing function and body.
+        for item in &discovered[..7] {
+            assert!(std::ptr::eq(item.function(), first_function));
+
+            let blocks = lookup_identifier_reference_enclosing_blocks(*item);
+
+            assert_eq!(blocks.len(), 1);
+            assert!(std::ptr::eq(blocks[0], first_body));
+        }
+
+        // The second function's initializer and condition
+        // belong directly to its function body.
+        for item in &discovered[7..9] {
+            assert!(std::ptr::eq(item.function(), second_function));
+
+            let blocks = lookup_identifier_reference_enclosing_blocks(*item);
+
+            assert_eq!(blocks.len(), 1);
+            assert!(std::ptr::eq(blocks[0], second_body));
+        }
+
+        // References inside the second function's conditional
+        // body inherit both the function body and if block.
+        for item in &discovered[9..14] {
+            assert!(std::ptr::eq(item.function(), second_function));
+
+            let blocks = lookup_identifier_reference_enclosing_blocks(*item);
+
+            assert_eq!(blocks.len(), 2);
+            assert!(std::ptr::eq(blocks[0], second_body));
+            assert!(std::ptr::eq(blocks[1], if_block));
+        }
+
+        // The final return expression belongs directly
+        // to the second function body.
+        let return_reference = discovered[14];
+
+        assert!(std::ptr::eq(return_reference.function(), second_function));
+
+        let return_blocks = lookup_identifier_reference_enclosing_blocks(return_reference);
+
+        assert_eq!(return_blocks.len(), 1);
+        assert!(std::ptr::eq(return_blocks[0], second_body));
+
+        // Inspect the original nested call expression.
+        let StatementSyntax::Expression(expression_statement) = &first_body.statements()[1] else {
+            panic!("Expected expression statement");
+        };
+
+        let ExpressionSyntax::Call(outer_call) = expression_statement.expression() else {
+            panic!("Expected outer call expression");
+        };
+
+        let ExpressionSyntax::Call(inner_call) = &outer_call.arguments()[0] else {
+            panic!("Expected nested call expression");
+        };
+
+        // The nested call callee must retain original AST identity.
+        let ExpressionSyntax::Name(inner_callee) = inner_call.callee() else {
+            panic!("Expected nested call callee");
+        };
+
+        let IdentifierReference::Name(discovered_callee) = discovered[2].reference() else {
+            panic!("Expected discovered nested call callee");
+        };
+
+        assert!(std::ptr::eq(inner_callee, discovered_callee));
+
+        // Parentheses and binary expressions must preserve
+        // the identity of their nested name expressions.
+        let ExpressionSyntax::Parenthesized(parenthesized) = &inner_call.arguments()[0] else {
+            panic!("Expected parenthesized expression");
+        };
+
+        let ExpressionSyntax::Binary(binary) = parenthesized.expression() else {
+            panic!("Expected binary expression");
+        };
+
+        let ExpressionSyntax::Name(left_name) = binary.left() else {
+            panic!("Expected left name expression");
+        };
+
+        let IdentifierReference::Name(discovered_name) = discovered[3].reference() else {
+            panic!("Expected discovered name reference");
+        };
+
+        assert!(std::ptr::eq(left_name, discovered_name));
+
+        // Identically named references in different functions
+        // must remain distinct original syntax nodes.
+        let IdentifierReference::Name(first_value) = discovered[3].reference() else {
+            panic!("Expected first function name reference");
+        };
+
+        let IdentifierReference::Name(second_value) = discovered[10].reference() else {
+            panic!("Expected second function name reference");
+        };
+
+        assert!(!std::ptr::eq(first_value, second_value));
+        assert!(!std::ptr::eq(first_body, second_body));
+
+        // Verify the assignment target in the second function.
+        let StatementSyntax::Expression(assignment_statement) = &if_block.statements()[0] else {
+            panic!("Expected assignment statement");
+        };
+
+        let ExpressionSyntax::Assignment(assignment) = assignment_statement.expression() else {
+            panic!("Expected assignment expression");
+        };
+
+        let IdentifierReference::AssignmentTarget(assignment_target) = discovered[9].reference()
+        else {
+            panic!("Expected assignment target reference");
+        };
+
+        assert!(std::ptr::eq(assignment, assignment_target));
+
+        // Repeated lookups must preserve the same original
+        // lexical block identities.
+        for item in &discovered {
+            let first = lookup_identifier_reference_enclosing_blocks(*item);
+
+            let second = lookup_identifier_reference_enclosing_blocks(*item);
+
+            assert_eq!(first.len(), second.len());
+
+            for (first_block, second_block) in first.iter().zip(second.iter()) {
+                assert!(std::ptr::eq(*first_block, *second_block));
+            }
+        }
+    }
+
+    #[test]
+    fn identifier_reference_enclosing_blocks_preserve_compound_expression_ancestry() {
+        let source = SourceText::new(
+            r#"
+function main() {
+    let baseline = initial;
+
+    if ready {
+        let flag = !enabled;
+        let choice = condition ? when_true : when_false;
+        let member = object.field;
+        let indexed = items[index];
+        let array = [first, second + third];
+        let record = { name: name_value, result: compute(input) };
+        return choice;
+    }
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        let expected_names = [
+            "initial",
+            "ready",
+            "enabled",
+            "condition",
+            "when_true",
+            "when_false",
+            "object",
+            "items",
+            "index",
+            "first",
+            "second",
+            "third",
+            "name_value",
+            "compute",
+            "input",
+            "choice",
+        ];
+
+        assert_eq!(discovered.len(), expected_names.len());
+
+        let function = &compilation_unit.function_declarations()[0];
+        let function_body = function.body();
+
+        let StatementSyntax::Conditional(conditional) = &function_body.statements()[1] else {
+            panic!("Expected conditional statement");
+        };
+
+        let if_block = conditional.then_block();
+
+        // Verify discovery order, function identity, and lexical ancestry.
+        for (index, (item, expected_name)) in discovered.iter().zip(expected_names).enumerate() {
+            let actual_name = source
+                .slice(&item.reference().identifier_span())
+                .expect("Identifier span should be valid");
+
+            assert_eq!(actual_name, expected_name);
+            assert!(std::ptr::eq(item.function(), function));
+
+            let blocks = lookup_identifier_reference_enclosing_blocks(*item);
+
+            let expected_depth = if index < 2 { 1 } else { 2 };
+
+            assert_eq!(
+                blocks.len(),
+                expected_depth,
+                "Unexpected ancestry depth for reference {index}"
+            );
+
+            assert!(std::ptr::eq(blocks[0], function_body));
+
+            if index >= 2 {
+                assert!(std::ptr::eq(blocks[1], if_block));
+            }
+        }
+
+        // All discovered references in this example are ordinary names.
+        assert!(
+            discovered
+                .iter()
+                .all(|item| matches!(item.reference(), IdentifierReference::Name(_)))
+        );
+
+        // Compare discovered references against original AST nodes.
+        let assert_name_identity = |index: usize, expression: &ExpressionSyntax| {
+            let ExpressionSyntax::Name(original_name) = expression else {
+                panic!("Expected original name expression at index {index}");
+            };
+
+            let IdentifierReference::Name(discovered_name) = discovered[index].reference() else {
+                panic!("Expected discovered name reference at index {index}");
+            };
+
+            assert!(std::ptr::eq(original_name, discovered_name));
+        };
+
+        // Function-body initializer and conditional condition.
+        let StatementSyntax::VariableDeclaration(baseline_declaration) =
+            &function_body.statements()[0]
+        else {
+            panic!("Expected baseline declaration");
+        };
+
+        assert_name_identity(0, baseline_declaration.initializer());
+        assert_name_identity(1, conditional.condition());
+
+        // Unary expression: !enabled
+        let StatementSyntax::VariableDeclaration(unary_declaration) = &if_block.statements()[0]
+        else {
+            panic!("Expected unary declaration");
+        };
+
+        let ExpressionSyntax::Unary(unary) = unary_declaration.initializer() else {
+            panic!("Expected unary expression");
+        };
+
+        assert_name_identity(2, unary.operand());
+
+        // Conditional expression: condition ? when_true : when_false
+        let StatementSyntax::VariableDeclaration(conditional_declaration) =
+            &if_block.statements()[1]
+        else {
+            panic!("Expected conditional expression declaration");
+        };
+
+        let ExpressionSyntax::Conditional(conditional_expression) =
+            conditional_declaration.initializer()
+        else {
+            panic!("Expected conditional expression");
+        };
+
+        assert_name_identity(3, conditional_expression.condition());
+        assert_name_identity(4, conditional_expression.when_true());
+        assert_name_identity(5, conditional_expression.when_false());
+
+        // Member access: object.field
+        // The field name is not an independent identifier reference.
+        let StatementSyntax::VariableDeclaration(member_declaration) = &if_block.statements()[2]
+        else {
+            panic!("Expected member access declaration");
+        };
+
+        let ExpressionSyntax::MemberAccess(member_access) = member_declaration.initializer() else {
+            panic!("Expected member access expression");
+        };
+
+        assert_name_identity(6, member_access.expression());
+
+        // Index expression: items[index]
+        let StatementSyntax::VariableDeclaration(index_declaration) = &if_block.statements()[3]
+        else {
+            panic!("Expected index declaration");
+        };
+
+        let ExpressionSyntax::Index(index_expression) = index_declaration.initializer() else {
+            panic!("Expected index expression");
+        };
+
+        assert_name_identity(7, index_expression.expression());
+        assert_name_identity(8, index_expression.index());
+
+        // Array literal: [first, second + third]
+        let StatementSyntax::VariableDeclaration(array_declaration) = &if_block.statements()[4]
+        else {
+            panic!("Expected array declaration");
+        };
+
+        let ExpressionSyntax::ArrayLiteral(array_literal) = array_declaration.initializer() else {
+            panic!("Expected array literal");
+        };
+
+        assert_eq!(array_literal.elements().len(), 2);
+
+        assert_name_identity(9, &array_literal.elements()[0]);
+
+        let ExpressionSyntax::Binary(binary) = &array_literal.elements()[1] else {
+            panic!("Expected binary array element");
+        };
+
+        assert_name_identity(10, binary.left());
+        assert_name_identity(11, binary.right());
+
+        // Object literal with nested call expression.
+        // Object member keys are excluded from identifier discovery.
+        let StatementSyntax::VariableDeclaration(object_declaration) = &if_block.statements()[5]
+        else {
+            panic!("Expected object declaration");
+        };
+
+        let ExpressionSyntax::ObjectLiteral(object_literal) = object_declaration.initializer()
+        else {
+            panic!("Expected object literal");
+        };
+
+        assert_eq!(object_literal.members().len(), 2);
+
+        assert_name_identity(12, object_literal.members()[0].value());
+
+        let ExpressionSyntax::Call(call) = object_literal.members()[1].value() else {
+            panic!("Expected object member call expression");
+        };
+
+        assert_name_identity(13, call.callee());
+
+        assert_eq!(call.arguments().len(), 1);
+        assert_name_identity(14, &call.arguments()[0]);
+
+        // Return expressions retain their containing block ancestry.
+        let StatementSyntax::Return(return_statement) = &if_block.statements()[6] else {
+            panic!("Expected return statement");
+        };
+
+        assert_name_identity(15, return_statement.expression());
+
+        // Repeated lookups preserve exact original block identities.
+        for item in &discovered {
+            let first = lookup_identifier_reference_enclosing_blocks(*item);
+            let second = lookup_identifier_reference_enclosing_blocks(*item);
+
+            assert_eq!(first.len(), second.len());
+
+            for (first_block, second_block) in first.iter().zip(second.iter()) {
+                assert!(std::ptr::eq(*first_block, *second_block));
+            }
+        }
+    }
 
     #[test]
     fn identifier_discovery_recognizes_for_header_and_body_references() {

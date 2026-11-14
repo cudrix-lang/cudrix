@@ -2042,6 +2042,189 @@ fn public_api_reports_invalid_parameter_lookup_identifier_span() {
 }
 
 #[test]
+fn public_api_looks_up_general_identifier_reference_enclosing_blocks() {
+    let source = cudrix::source::SourceText::new(
+        r#"
+function first() {
+    let source = initial;
+
+    if ready {
+        target = source + delta;
+        consume(target);
+    }
+}
+
+function second() {
+    return target;
+}
+"#,
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    // Verify the public discovery result type.
+    let discovered: Vec<cudrix::DiscoveredIdentifierReference<'_>> =
+        cudrix::discover_identifier_references(&compilation_unit);
+
+    assert_eq!(discovered.len(), 8);
+
+    let functions = compilation_unit.function_declarations();
+
+    assert_eq!(functions.len(), 2);
+
+    let first_function = &functions[0];
+    let second_function = &functions[1];
+
+    let first_body = first_function.body();
+    let second_body = second_function.body();
+
+    let cudrix::syntax::StatementSyntax::Conditional(conditional) = &first_body.statements()[1]
+    else {
+        panic!("Expected conditional statement");
+    };
+
+    let if_block = conditional.then_block();
+
+    // Verify identifier discovery order across both functions.
+    let names: Vec<&str> = discovered
+        .iter()
+        .map(|item| {
+            source
+                .slice(&item.reference().identifier_span())
+                .expect("Identifier span should be valid")
+        })
+        .collect();
+
+    assert_eq!(
+        names,
+        [
+            "initial", "ready", "target", "source", "delta", "consume", "target", "target",
+        ]
+    );
+
+    // Define the expected lexical ancestry using original AST blocks.
+    let expected_paths = [
+        vec![first_body],
+        vec![first_body],
+        vec![first_body, if_block],
+        vec![first_body, if_block],
+        vec![first_body, if_block],
+        vec![first_body, if_block],
+        vec![first_body, if_block],
+        vec![second_body],
+    ];
+
+    for (index, (item, expected_path)) in discovered.iter().zip(expected_paths.iter()).enumerate() {
+        let expected_function = if index < 7 {
+            first_function
+        } else {
+            second_function
+        };
+
+        assert!(std::ptr::eq(item.function(), expected_function));
+
+        // Explicitly verify the public return type.
+        let actual_path: Vec<&cudrix::syntax::BlockSyntax> =
+            cudrix::lookup_identifier_reference_enclosing_blocks(*item);
+
+        assert_eq!(
+            actual_path.len(),
+            expected_path.len(),
+            "Unexpected ancestry depth for reference {index}"
+        );
+
+        for (actual_block, expected_block) in actual_path.iter().zip(expected_path.iter()) {
+            assert!(
+                std::ptr::eq(*actual_block, *expected_block),
+                "Incorrect block identity for reference {index}"
+            );
+        }
+    }
+
+    // Verify original assignment target identity.
+    let cudrix::syntax::StatementSyntax::Expression(assignment_statement) =
+        &if_block.statements()[0]
+    else {
+        panic!("Expected assignment statement");
+    };
+
+    let cudrix::syntax::ExpressionSyntax::Assignment(assignment) =
+        assignment_statement.expression()
+    else {
+        panic!("Expected assignment expression");
+    };
+
+    let cudrix::IdentifierReference::AssignmentTarget(assignment_target) =
+        discovered[2].reference()
+    else {
+        panic!("Expected assignment target reference");
+    };
+
+    assert!(std::ptr::eq(assignment, assignment_target));
+
+    // Verify original ordinary name identity in the second function.
+    let cudrix::syntax::StatementSyntax::Return(return_statement) = &second_body.statements()[0]
+    else {
+        panic!("Expected return statement");
+    };
+
+    let cudrix::syntax::ExpressionSyntax::Name(return_name) = return_statement.expression() else {
+        panic!("Expected return name expression");
+    };
+
+    let cudrix::IdentifierReference::Name(discovered_return_name) = discovered[7].reference()
+    else {
+        panic!("Expected discovered return name");
+    };
+
+    assert!(std::ptr::eq(return_name, discovered_return_name));
+
+    // Verify compatibility with existing direct-call ancestry.
+    let direct_calls = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    assert_eq!(direct_calls.len(), 1);
+
+    let direct_call = direct_calls[0];
+
+    assert!(std::ptr::eq(direct_call.function(), first_function));
+
+    let cudrix::syntax::ExpressionSyntax::Name(call_callee) = direct_call.call().callee() else {
+        panic!("Expected named direct-call callee");
+    };
+
+    let cudrix::IdentifierReference::Name(discovered_callee) = discovered[5].reference() else {
+        panic!("Expected discovered call callee reference");
+    };
+
+    assert!(std::ptr::eq(call_callee, discovered_callee));
+
+    let direct_call_blocks = cudrix::lookup_direct_call_enclosing_blocks(direct_call);
+
+    let identifier_blocks = cudrix::lookup_identifier_reference_enclosing_blocks(discovered[5]);
+
+    assert_eq!(direct_call_blocks.len(), identifier_blocks.len());
+
+    for (direct_block, identifier_block) in direct_call_blocks.iter().zip(identifier_blocks.iter())
+    {
+        assert!(std::ptr::eq(*direct_block, *identifier_block));
+    }
+
+    // Repeated public lookups must preserve exact block identities.
+    for item in &discovered {
+        let first = cudrix::lookup_identifier_reference_enclosing_blocks(*item);
+        let second = cudrix::lookup_identifier_reference_enclosing_blocks(*item);
+
+        assert_eq!(first.len(), second.len());
+
+        for (first_block, second_block) in first.iter().zip(second.iter()) {
+            assert!(std::ptr::eq(*first_block, *second_block));
+        }
+    }
+}
+
+#[test]
 fn public_api_discovers_general_identifier_references() {
     let source = cudrix::source::SourceText::new(
         r#"
