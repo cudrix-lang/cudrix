@@ -2225,6 +2225,210 @@ function second() {
 }
 
 #[test]
+fn public_api_recognizes_general_identifier_local_variable_candidates() {
+    let source = cudrix::source::SourceText::new(
+        r#"
+function main() {
+    let target = 1;
+
+    if ready {
+        var target = 2;
+        target = target + 1;
+    }
+
+    let target = 3;
+}
+"#,
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_identifier_references(&compilation_unit);
+
+    assert_eq!(discovered.len(), 3);
+
+    let function = &compilation_unit.function_declarations()[0];
+    let function_body = function.body();
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(outer_before) =
+        &function_body.statements()[0]
+    else {
+        panic!("Expected first outer declaration");
+    };
+
+    let cudrix::syntax::StatementSyntax::Conditional(conditional) = &function_body.statements()[1]
+    else {
+        panic!("Expected conditional statement");
+    };
+
+    let if_block = conditional.then_block();
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(inner_declaration) =
+        &if_block.statements()[0]
+    else {
+        panic!("Expected inner declaration");
+    };
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(outer_after) =
+        &function_body.statements()[2]
+    else {
+        panic!("Expected final outer declaration");
+    };
+
+    let cudrix::syntax::StatementSyntax::Expression(assignment_statement) =
+        &if_block.statements()[1]
+    else {
+        panic!("Expected assignment statement");
+    };
+
+    let cudrix::syntax::ExpressionSyntax::Assignment(assignment) =
+        assignment_statement.expression()
+    else {
+        panic!("Expected assignment expression");
+    };
+
+    // The discovered condition is an ordinary name reference.
+    // No matching local declaration exists in its lexical ancestry.
+    let condition_candidates =
+        cudrix::lookup_identifier_reference_enclosing_block_local_variable_candidates(
+            discovered[0],
+            &source,
+        )
+        .expect("Condition candidate lookup should succeed");
+
+    assert!(condition_candidates.is_empty());
+
+    // Verify original assignment target identity.
+    let cudrix::IdentifierReference::AssignmentTarget(assignment_target) =
+        discovered[1].reference()
+    else {
+        panic!("Expected assignment target reference");
+    };
+
+    assert!(std::ptr::eq(assignment_target, assignment));
+
+    // The right-hand expression contains a separate ordinary name.
+    assert!(matches!(
+        discovered[2].reference(),
+        cudrix::IdentifierReference::Name(_)
+    ));
+
+    // Both reference kinds must recognize the same local declarations.
+    let expected = [
+        (outer_before, function_body),
+        (inner_declaration, if_block),
+        (outer_after, function_body),
+    ];
+
+    for item in discovered.iter().skip(1) {
+        assert!(std::ptr::eq(item.function(), function));
+
+        let identifier_text = source
+            .slice(&item.reference().identifier_span())
+            .expect("Identifier span should be valid");
+
+        assert_eq!(identifier_text, "target");
+
+        // The explicit type annotation verifies the public candidate
+        // type and the new operation's borrowed return contract.
+        let candidates: Vec<cudrix::EnclosingBlockLocalVariableCandidate<'_>> =
+            cudrix::lookup_identifier_reference_enclosing_block_local_variable_candidates(
+                *item, &source,
+            )
+            .expect("Public candidate lookup should succeed");
+
+        assert_eq!(candidates.len(), expected.len());
+
+        for (candidate, (expected_declaration, expected_block)) in
+            candidates.iter().zip(expected.iter())
+        {
+            assert!(std::ptr::eq(candidate.declaration(), *expected_declaration));
+
+            assert!(std::ptr::eq(candidate.block(), *expected_block));
+        }
+    }
+}
+
+#[test]
+fn public_api_general_identifier_candidates_report_invalid_identifier_spans() {
+    let source = cudrix::source::SourceText::new(
+        r#"
+function main() {
+    target = target + 1;
+    let target = 10;
+}
+"#,
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_identifier_references(&compilation_unit);
+
+    assert_eq!(discovered.len(), 2);
+
+    assert!(matches!(
+        discovered[0].reference(),
+        cudrix::IdentifierReference::AssignmentTarget(_)
+    ));
+
+    assert!(matches!(
+        discovered[1].reference(),
+        cudrix::IdentifierReference::Name(_)
+    ));
+
+    let function_body = compilation_unit.function_declarations()[0].body();
+
+    let cudrix::syntax::StatementSyntax::VariableDeclaration(declaration) =
+        &function_body.statements()[1]
+    else {
+        panic!("Expected local variable declaration");
+    };
+
+    let declaration_identifier_span = declaration.identifier_token().span();
+
+    // An empty source invalidates the identifier spans of both
+    // the assignment target and ordinary name reference.
+    let empty_source = cudrix::source::SourceText::new("");
+
+    for item in &discovered {
+        let reference_span = item.reference().identifier_span();
+
+        let result = cudrix::lookup_identifier_reference_enclosing_block_local_variable_candidates(
+            *item,
+            &empty_source,
+        );
+
+        assert!(matches!(
+            result,
+            Err(cudrix::LocalVariableLookupError::InvalidIdentifierSpan(span))
+                if span == reference_span
+        ));
+    }
+
+    // Preserve both reference spans while truncating the source
+    // before the matching local declaration identifier.
+    let truncated_source =
+        cudrix::source::SourceText::new(&source.as_str()[..declaration_identifier_span.start()]);
+
+    for item in &discovered {
+        let result = cudrix::lookup_identifier_reference_enclosing_block_local_variable_candidates(
+            *item,
+            &truncated_source,
+        );
+
+        assert!(matches!(
+            result,
+            Err(cudrix::LocalVariableLookupError::InvalidIdentifierSpan(span))
+                if span == declaration_identifier_span
+        ));
+    }
+}
+
+#[test]
 fn public_api_discovers_general_identifier_references() {
     let source = cudrix::source::SourceText::new(
         r#"
