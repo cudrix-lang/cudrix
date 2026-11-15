@@ -1,6 +1,6 @@
 # Cudrix Programming Language
 
-Cudrix is a programming language being developed for building cross-platform desktop applications.
+Cudrix is a programming language under active development, designed for building cross-platform desktop and mobile applications, targeting Windows, macOS, Linux, iOS, and Android.
 
 The project is committed to creating a robust, reliable, and sustainable programming language with a comprehensive toolchain that supports the complete development process, from writing source code to producing finished applications.
 
@@ -47,7 +47,7 @@ The language and its tooling will continue to evolve as these capabilities are i
 
 The Cargo package currently uses version `0.1.0`.
 
-Compiler development is also tracked through numbered milestones. The latest completed compiler milestone as of November 8, 2026, is **0.2.43 — Scope-Aware Local Declaration Recognition Foundation**.
+Compiler development is also tracked through numbered milestones. The latest completed compiler milestone as of November 15, 2026, is **0.2.46 — General Identifier Scope-Aware Declaration Candidate Recognition Foundation**.
 
 Development milestone numbers are separate from the Cargo package version and do not represent stable language releases.
 
