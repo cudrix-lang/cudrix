@@ -22,7 +22,7 @@ The compiler currently includes:
 - **Syntax parsing:** Parsing of expressions, statements, functions, modules, and import declarations.
 - **Syntax representation:** Structured models for declarations, expressions, statements, and compilation units.
 - **Function discovery:** Identification of direct function calls and lookup of top-level function declaration candidates.
-- **Declaration recognition:** Recognition of function parameters and local variable declarations.
+- **Declaration recognition:** Recognition of function parameters and local variable declarations, including matching enclosing-function parameter candidates for ordinary identifier references and assignment targets.
 - **Lexical scope recognition:** Identification of enclosing blocks and local declaration candidates within the enclosing block ancestry.
 - **Compiler library interfaces:** Public Rust APIs currently expose the compiler's syntax and semantic-recognition foundations. These interfaces support the bootstrap implementation and will evolve as Cudrix progresses toward a self-hosted compiler.
 - **Automated testing:** Unit and public API tests, with continuous integration on Linux and Windows.
@@ -47,7 +47,7 @@ The language and its tooling will continue to evolve as these capabilities are i
 
 The Cargo package currently uses version `0.1.0`.
 
-Compiler development is also tracked through numbered milestones. The latest completed compiler milestone as of November 15, 2026, is **0.2.46 — General Identifier Scope-Aware Declaration Candidate Recognition Foundation**.
+Compiler development is also tracked through numbered milestones. The latest completed compiler milestone as of November 16, 2026, is **0.2.47 — General Identifier Function Parameter Candidate Recognition Foundation**.
 
 Development milestone numbers are separate from the Cargo package version and do not represent stable language releases.
 

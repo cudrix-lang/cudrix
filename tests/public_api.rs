@@ -2225,6 +2225,186 @@ function second() {
 }
 
 #[test]
+fn public_api_general_identifier_parameter_candidates_preserve_matching_and_isolation() {
+    let source = cudrix::source::SourceText::new(
+        r#"
+function first(value, other, value) {
+    if true {
+        value = other;
+        value();
+    }
+}
+
+function second(other) {
+    let value = 1;
+    value = other;
+}
+"#,
+    );
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered: Vec<cudrix::DiscoveredIdentifierReference<'_>> =
+        cudrix::discover_identifier_references(&compilation_unit);
+
+    let functions = compilation_unit.function_declarations();
+
+    assert_eq!(functions.len(), 2);
+    assert_eq!(discovered.len(), 5);
+
+    let first_function = &functions[0];
+    let second_function = &functions[1];
+
+    for reference in &discovered[..3] {
+        assert!(std::ptr::eq(reference.function(), first_function));
+    }
+
+    for reference in &discovered[3..] {
+        assert!(std::ptr::eq(reference.function(), second_function));
+    }
+
+    assert!(matches!(
+        discovered[0].reference(),
+        cudrix::IdentifierReference::AssignmentTarget(_)
+    ));
+
+    assert!(matches!(
+        discovered[2].reference(),
+        cudrix::IdentifierReference::Name(_)
+    ));
+
+    assert!(matches!(
+        discovered[3].reference(),
+        cudrix::IdentifierReference::AssignmentTarget(_)
+    ));
+
+    // Assignment targets and ordinary name references must preserve
+    // both matching parameter declarations in their original order.
+    for index in [0, 2] {
+        let result: Result<cudrix::FunctionParameterLookup<'_>, cudrix::ParameterLookupError> =
+            cudrix::lookup_identifier_reference_enclosing_function_parameters(
+                discovered[index],
+                &source,
+            );
+
+        let Ok(cudrix::FunctionParameterLookup::Multiple(matches)) = result else {
+            panic!("Expected duplicate parameter candidates");
+        };
+
+        assert_eq!(matches.len(), 2);
+        assert!(std::ptr::eq(matches[0], &first_function.parameters()[0]));
+        assert!(std::ptr::eq(matches[1], &first_function.parameters()[2]));
+    }
+
+    // A different name in the same function has one candidate.
+    let first_other =
+        cudrix::lookup_identifier_reference_enclosing_function_parameters(discovered[1], &source);
+
+    let Ok(cudrix::FunctionParameterLookup::Unique(parameter)) = first_other else {
+        panic!("Expected one matching first-function parameter");
+    };
+
+    assert!(std::ptr::eq(parameter, &first_function.parameters()[1]));
+
+    // A matching local variable is not a function parameter.
+    let second_value =
+        cudrix::lookup_identifier_reference_enclosing_function_parameters(discovered[3], &source);
+
+    assert!(matches!(
+        second_value,
+        Ok(cudrix::FunctionParameterLookup::NotFound)
+    ));
+
+    let local_candidates =
+        cudrix::lookup_identifier_reference_enclosing_block_local_variable_candidates(
+            discovered[3],
+            &source,
+        )
+        .expect("Local variable lookup should succeed");
+
+    assert_eq!(local_candidates.len(), 1);
+
+    // The second function's own parameter remains independently available.
+    let second_other =
+        cudrix::lookup_identifier_reference_enclosing_function_parameters(discovered[4], &source);
+
+    let Ok(cudrix::FunctionParameterLookup::Unique(parameter)) = second_other else {
+        panic!("Expected one matching second-function parameter");
+    };
+
+    assert!(std::ptr::eq(parameter, &second_function.parameters()[0]));
+
+    // The existing direct-call parameter API must remain compatible.
+    let direct_calls = cudrix::discover_direct_function_calls(&compilation_unit);
+
+    assert_eq!(direct_calls.len(), 1);
+    assert!(std::ptr::eq(direct_calls[0].function(), first_function));
+
+    let direct_result =
+        cudrix::lookup_direct_call_enclosing_function_parameters(direct_calls[0], &source);
+
+    let Ok(cudrix::FunctionParameterLookup::Multiple(matches)) = direct_result else {
+        panic!("Expected existing direct-call parameter candidates");
+    };
+
+    assert_eq!(matches.len(), 2);
+    assert!(std::ptr::eq(matches[0], &first_function.parameters()[0]));
+    assert!(std::ptr::eq(matches[1], &first_function.parameters()[2]));
+}
+
+#[test]
+fn public_api_general_identifier_parameter_candidates_report_invalid_spans() {
+    let source = cudrix::source::SourceText::new("function main(value) { value(); }");
+
+    let compilation_unit = cudrix::compiler::Parser::new(&source)
+        .parse_compilation_unit()
+        .expect("Compilation unit should parse");
+
+    let discovered = cudrix::discover_identifier_references(&compilation_unit);
+
+    assert_eq!(discovered.len(), 1);
+
+    let reference_span = discovered[0].reference().identifier_span();
+    let parameter_span = compilation_unit.function_declarations()[0].parameters()[0]
+        .identifier_token()
+        .span();
+
+    // First, invalidate the reference identifier itself.
+    let empty_source = cudrix::source::SourceText::new("");
+
+    let reference_result = cudrix::lookup_identifier_reference_enclosing_function_parameters(
+        discovered[0],
+        &empty_source,
+    );
+
+    assert!(matches!(
+        reference_result,
+        Err(cudrix::ParameterLookupError::InvalidIdentifierSpan(span))
+            if span == reference_span
+    ));
+
+    // Preserve the reference span while invalidating the parameter
+    // span through an invalid UTF-8 character boundary.
+    let unrelated_source = cudrix::source::SourceText::new("function mainévalue) {value(); }");
+
+    assert_eq!(unrelated_source.slice(&reference_span), Some("value"));
+    assert_eq!(unrelated_source.slice(&parameter_span), None);
+
+    let parameter_result = cudrix::lookup_identifier_reference_enclosing_function_parameters(
+        discovered[0],
+        &unrelated_source,
+    );
+
+    assert!(matches!(
+        parameter_result,
+        Err(cudrix::ParameterLookupError::InvalidIdentifierSpan(span))
+            if span == parameter_span
+    ));
+}
+
+#[test]
 fn public_api_recognizes_general_identifier_local_variable_candidates() {
     let source = cudrix::source::SourceText::new(
         r#"

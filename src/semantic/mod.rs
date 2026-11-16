@@ -25,7 +25,7 @@ pub enum ParameterLookupError {
     InvalidIdentifierSpan(SourceSpan),
 }
 
-/// Parameter declarations matching the name of a discovered direct call.
+/// Parameter declarations matching a discovered direct call or identifier reference.
 ///
 /// Results describe matching declarations, not definitive lexical bindings.
 /// Multiple matches are preserved in parameter declaration order.
@@ -617,26 +617,63 @@ pub fn lookup_direct_call_enclosing_function_parameters<'syntax>(
         unreachable!("Discovered direct calls must have named callees");
     };
 
-    let call_identifier_span = name_expression.identifier_token().span();
+    lookup_function_parameters_by_identifier_span(
+        discovered.function(),
+        name_expression.identifier_token().span(),
+        source,
+    )
+}
 
-    let call_identifier_text =
-        source
-            .slice(&call_identifier_span)
-            .ok_or(ParameterLookupError::InvalidIdentifierSpan(
-                call_identifier_span,
-            ))?;
+/// Finds enclosing-function parameters matching a discovered identifier reference.
+///
+/// The supplied `source` must be the same source text used to parse
+/// the syntax tree containing the discovered reference.
+///
+/// Supports ordinary name references and assignment targets. All matching
+/// parameters retain their original syntax-node identities and parameter
+/// declaration order, including duplicate names.
+///
+/// An invalid reference or parameter identifier span produces an error.
+/// Providing unrelated source text with otherwise valid spans cannot
+/// be detected reliably.
+///
+/// This operation does not resolve local variables, establish lexical
+/// bindings, enforce shadowing rules, or validate assignments.
+pub fn lookup_identifier_reference_enclosing_function_parameters<'syntax>(
+    discovered: DiscoveredIdentifierReference<'syntax>,
+    source: &SourceText,
+) -> Result<FunctionParameterLookup<'syntax>, ParameterLookupError> {
+    lookup_function_parameters_by_identifier_span(
+        discovered.function(),
+        discovered.reference().identifier_span(),
+        source,
+    )
+}
+
+/// Finds matching parameters within the specified function.
+///
+/// The reference identifier is validated before parameter declarations.
+/// Matching declarations retain their original syntax-node identities and
+/// parameter declaration order, including duplicate names.
+fn lookup_function_parameters_by_identifier_span<'syntax>(
+    function: &'syntax FunctionDeclarationSyntax,
+    identifier_span: SourceSpan,
+    source: &SourceText,
+) -> Result<FunctionParameterLookup<'syntax>, ParameterLookupError> {
+    let identifier_text = source
+        .slice(&identifier_span)
+        .ok_or(ParameterLookupError::InvalidIdentifierSpan(identifier_span))?;
 
     let mut first_match = None;
     let mut multiple_matches = Vec::new();
 
-    for parameter in discovered.function().parameters() {
+    for parameter in function.parameters() {
         let parameter_identifier_span = parameter.identifier_token().span();
-
         let parameter_identifier_text = source.slice(&parameter_identifier_span).ok_or(
             ParameterLookupError::InvalidIdentifierSpan(parameter_identifier_span),
         )?;
 
-        if parameter_identifier_text != call_identifier_text {
+        if parameter_identifier_text != identifier_text {
             continue;
         }
 
@@ -646,7 +683,6 @@ pub fn lookup_direct_call_enclosing_function_parameters<'syntax>(
                 if multiple_matches.is_empty() {
                     multiple_matches.push(first);
                 }
-
                 multiple_matches.push(parameter);
             }
         }
@@ -921,6 +957,225 @@ mod tests {
     use super::*;
     use crate::compiler::Parser;
     use crate::syntax::StatementSyntax;
+
+    #[test]
+    fn identifier_reference_parameter_candidates_match_names_and_assignment_targets() {
+        let source =
+            SourceText::new("function main(value, other, value) { value = other; return value; }");
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+        let function = &compilation_unit.function_declarations()[0];
+        let parameters = function.parameters();
+
+        assert_eq!(discovered.len(), 3);
+        assert_eq!(parameters.len(), 3);
+
+        assert!(matches!(
+            discovered[0].reference(),
+            IdentifierReference::AssignmentTarget(_)
+        ));
+        assert!(matches!(
+            discovered[1].reference(),
+            IdentifierReference::Name(_)
+        ));
+        assert!(matches!(
+            discovered[2].reference(),
+            IdentifierReference::Name(_)
+        ));
+
+        for reference in [discovered[0], discovered[2]] {
+            assert!(std::ptr::eq(reference.function(), function));
+
+            let result =
+                lookup_identifier_reference_enclosing_function_parameters(reference, &source);
+
+            let Ok(FunctionParameterLookup::Multiple(matches)) = result else {
+                panic!("Expected duplicate matching parameter candidates");
+            };
+
+            assert_eq!(matches.len(), 2);
+            assert!(std::ptr::eq(matches[0], &parameters[0]));
+            assert!(std::ptr::eq(matches[1], &parameters[2]));
+        }
+
+        let result =
+            lookup_identifier_reference_enclosing_function_parameters(discovered[1], &source);
+
+        let Ok(FunctionParameterLookup::Unique(parameter)) = result else {
+            panic!("Expected one matching parameter candidate");
+        };
+
+        assert!(std::ptr::eq(parameter, &parameters[1]));
+    }
+
+    #[test]
+    fn identifier_reference_parameter_candidates_report_invalid_reference_identifier_spans() {
+        let source = SourceText::new("function main(value) { value = value; }");
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+
+        assert_eq!(discovered.len(), 2);
+
+        let empty_source = SourceText::new("");
+
+        for reference in discovered {
+            let expected_span = reference.reference().identifier_span();
+
+            let result =
+                lookup_identifier_reference_enclosing_function_parameters(reference, &empty_source);
+
+            assert!(matches!(
+                result,
+                Err(ParameterLookupError::InvalidIdentifierSpan(span))
+                    if span == expected_span
+            ));
+        }
+    }
+
+    #[test]
+    fn identifier_reference_parameter_candidates_report_invalid_parameter_identifier_span() {
+        let source = SourceText::new("function main(value) { value(); }");
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+        let function = &compilation_unit.function_declarations()[0];
+
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(function.parameters().len(), 1);
+
+        let reference_span = discovered[0].reference().identifier_span();
+        let parameter_span = function.parameters()[0].identifier_token().span();
+
+        // The reference identifier remains readable, but the parameter
+        // identifier span begins inside the multibyte UTF-8 character 'é'.
+        let unrelated_source = SourceText::new("function mainévalue) {value(); }");
+
+        assert_eq!(unrelated_source.slice(&reference_span), Some("value"));
+        assert_eq!(unrelated_source.slice(&parameter_span), None);
+
+        let result = lookup_identifier_reference_enclosing_function_parameters(
+            discovered[0],
+            &unrelated_source,
+        );
+
+        assert!(matches!(
+            result,
+            Err(ParameterLookupError::InvalidIdentifierSpan(span))
+                if span == parameter_span
+        ));
+    }
+
+    #[test]
+    fn identifier_reference_parameter_candidates_are_deterministic_in_nested_blocks() {
+        let source = SourceText::new(
+            r#"
+function main(value, other, value) {
+    if true {
+        while true {
+            value = value;
+        }
+    }
+}
+"#,
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+        let function = &compilation_unit.function_declarations()[0];
+        let parameters = function.parameters();
+
+        assert_eq!(discovered.len(), 2);
+
+        for reference in discovered {
+            assert!(std::ptr::eq(reference.function(), function));
+
+            let first =
+                lookup_identifier_reference_enclosing_function_parameters(reference, &source);
+
+            let second =
+                lookup_identifier_reference_enclosing_function_parameters(reference, &source);
+
+            let (
+                Ok(FunctionParameterLookup::Multiple(first_matches)),
+                Ok(FunctionParameterLookup::Multiple(second_matches)),
+            ) = (first, second)
+            else {
+                panic!("Expected identical duplicate parameter candidates");
+            };
+
+            assert_eq!(first_matches.len(), 2);
+            assert_eq!(second_matches.len(), 2);
+
+            assert!(std::ptr::eq(first_matches[0], &parameters[0]));
+            assert!(std::ptr::eq(first_matches[1], &parameters[2]));
+
+            for (first_parameter, second_parameter) in
+                first_matches.iter().zip(second_matches.iter())
+            {
+                assert!(std::ptr::eq(*first_parameter, *second_parameter));
+            }
+        }
+    }
+
+    #[test]
+    fn identifier_reference_parameter_candidates_only_examine_enclosing_function() {
+        let source = SourceText::new(
+            "function first(value) { value; }\n\
+             function second(other) { let value = 1; value; }",
+        );
+
+        let compilation_unit = Parser::new(&source)
+            .parse_compilation_unit()
+            .expect("Compilation unit should parse");
+
+        let discovered = discover_identifier_references(&compilation_unit);
+        let functions = compilation_unit.function_declarations();
+
+        assert_eq!(discovered.len(), 2);
+        assert_eq!(functions.len(), 2);
+
+        assert!(std::ptr::eq(discovered[0].function(), &functions[0]));
+        assert!(std::ptr::eq(discovered[1].function(), &functions[1]));
+
+        let first_result =
+            lookup_identifier_reference_enclosing_function_parameters(discovered[0], &source);
+
+        let Ok(FunctionParameterLookup::Unique(parameter)) = first_result else {
+            panic!("Expected parameter from the first function");
+        };
+
+        assert!(std::ptr::eq(parameter, &functions[0].parameters()[0]));
+
+        let second_result =
+            lookup_identifier_reference_enclosing_function_parameters(discovered[1], &source);
+
+        assert!(matches!(
+            second_result,
+            Ok(FunctionParameterLookup::NotFound)
+        ));
+
+        let local_candidates =
+            lookup_identifier_reference_enclosing_block_local_variable_candidates(
+                discovered[1],
+                &source,
+            )
+            .expect("Local variable candidate lookup should succeed");
+
+        assert_eq!(local_candidates.len(), 1);
+    }
 
     #[test]
     fn identifier_reference_local_variable_candidates_match_names_and_assignment_targets() {
